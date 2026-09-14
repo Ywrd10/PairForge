@@ -183,9 +183,11 @@ ports with pause/resume, and bounded PostgreSQL socket reads and AMQP handshakes
 Earlier runs failed or were interrupted while fixing those issues; they are not
 counted as passes. Expected outage warnings appear in successful test logs.
 
-Remote GitHub Actions remains unverified. The target is the private repository
-`Ywrd10/PairForge`; an initial push and successful workflow run are still needed.
-Milestone 0 remains IN PROGRESS until every acceptance check is verified.
+[GitHub Actions run 34874301790](https://github.com/Ywrd10/PairForge/actions/runs/34874301790)
+passes for foundation commit `9795240` in the private `Ywrd10/PairForge` repository:
+both the Linux Java/container-test job and the frontend job succeed. All
+Milestone 0 acceptance checks pass, and the milestone is DONE. Milestone 1 has
+not started. No required check remains failing, skipped, or unverified.
 
 ### Docker recovery on the reviewed Windows machine
 

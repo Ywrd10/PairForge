@@ -9,11 +9,11 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 0 (IN PROGRESS). Implementation is approved; final
-acceptance verification is in progress. Keep the approximately three-week target
-focused on the core workflow and reserve time for integration/deployment;
-beta recruitment and
-deferred technologies must not expand the critical path.
+Current milestone: Milestone 0 (DONE). All foundation acceptance checks pass.
+Milestone 1 remains TODO and requires a separate implementation request.
+Keep the approximately three-week target focused on the core workflow and reserve
+time for integration/deployment; beta recruitment and deferred technologies must
+not expand the critical path.
 
 Required failure handling belongs with the feature that introduces it. The
 approved PostgreSQL-to-RabbitMQ dual-write crash windows remain documented MVP
@@ -45,7 +45,7 @@ Status values:
 
 ## Milestone 0 — Project Foundation
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
 Deliverables:
 
@@ -169,8 +169,11 @@ product features. JPA/Flyway begin in Milestone 1; Security in Milestone 2.
   application startup, health/exposure, frontend delivery, dependency stop/start
   recovery, process liveness, and worker independence from Redis.
 - Documented shutdown passes and retains the PostgreSQL/RabbitMQ data volumes.
-- Remote GitHub Actions remains unverified; the target private repository is
-  `Ywrd10/PairForge`. Do not mark DONE until the required workflow passes.
+- [GitHub Actions run 34874301790](https://github.com/Ywrd10/PairForge/actions/runs/34874301790)
+  passes for foundation commit `9795240`: Java build and all 23 integration tests
+  on Linux, frontend clean install, lint, typecheck, and production build.
+- All Milestone 0 acceptance criteria are satisfied. Earlier Docker/fixture
+  failures were resolved; no required check is skipped or left unverified.
 - No future-milestone product functionality was introduced.
 
 ---
