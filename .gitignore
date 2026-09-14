@@ -1,0 +1,14 @@
+# Local secrets and generated artifacts
+.env
+.env.*
+!.env.example
+**/target/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+.tmp/
+*.log
+.idea/
+.vscode/
+*.iml
+.DS_Store
