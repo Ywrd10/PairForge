@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 0 (DONE). All foundation acceptance checks pass.
-Milestone 1 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 1 (DONE). Persistence acceptance checks pass.
+Milestone 2 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -180,7 +180,7 @@ product features. JPA/Flyway begin in Milestone 1; Security in Milestone 2.
 
 ## Milestone 1 — Persistence
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -201,6 +201,64 @@ Acceptance test:
 
 Database migrations run against a clean PostgreSQL instance and persistence
 tests pass.
+
+### Verification (2026-09-14)
+
+- API-owned `V1__initial_schema.sql` creates all four tables on clean PostgreSQL
+  17.11. Repeat migration preserves records; checksum changes are rejected and a
+  deliberately failing migration rolls back partial DDL and prevents API startup.
+- Root Maven `verify` passes 74 tests: 3 email unit tests, 45 persistence integration
+  tests, 3 migration integration tests, 12 API health tests, and 11 worker tests.
+  Zero failures, errors, or skips. PostgreSQL, Redis, and RabbitMQ tests use real
+  Docker containers. An initial microsecond-precision mismatch was fixed before
+  the final successful run.
+- Tests cover all models, normalized unique email, invalid references and values,
+  duplicate membership, at least three members, restrictive deletion, UTF-8 byte
+  budgets, nullable results, stable history pagination, and required indexes.
+- Separate worker credentials are provisioned repeatedly on an existing local
+  volume and in Testcontainers. Tests reject password-hash reads, membership
+  writes, table/schema/temp-table creation, and provisioning a role with other
+  role memberships. The worker launcher excludes the bootstrap database password.
+- Both apps start with the migrated local database. Full smoke tests pass for
+  health, restricted Actuator exposure, frontend HTTP delivery, dependency
+  stop/start recovery, liveness, and worker independence from Redis.
+- Frontend lint, typecheck, and build, PowerShell syntax, workflow Actionlint,
+  Compose configuration, and whitespace checks pass. Secrets/logs remain ignored.
+- CI includes the new tests through the existing Maven verify command and now
+  uploads unit reports too. No new remote GitHub Actions run was triggered for
+  these uncommitted changes; the Milestone 0 run is not evidence for Milestone 1.
+- All Milestone 1 acceptance criteria pass locally. No authentication, room APIs,
+  collaboration, queue processing, or execution behavior was introduced.
+
+### Review verification (2026-09-15)
+
+- Re-read the milestone requirements and reviewed all persistence models,
+  repositories, migration/configuration, credential provisioning, and tests.
+  All Milestone 1 deliverables and the clean-migration/persistence acceptance
+  criteria remain satisfied; status stays DONE. Milestone 2 remains TODO.
+- Fixed CRLF empty-worker-password detection and added disposable credential
+  tests for LF/CRLF, existing-secret preservation, and overwrite refusal. They
+  pass in PowerShell 7 and Windows PowerShell 5.1; CI now includes this check.
+- Fixed repeat provisioning to revoke separately granted column privileges,
+  with a regression test for password-hash access. Added a missing API startup
+  test for schema drift and removed a test override that duplicated the
+  production Hibernate validation setting.
+- Root Maven `clean verify`: 76 tests pass (3 unit, 46 persistence, 4 migration,
+  12 API health, 11 worker), zero failures/errors/skips. No test flakiness was
+  observed. The initial Docker-unavailable run failed as required; socket-only
+  recovery restored the engine before the final clean run.
+- Frontend clean install, lint, typecheck, production build, script tests/syntax,
+  Actionlint, whitespace and local-credential scans pass. Full smoke tests pass
+  for startup, restricted endpoint exposure, frontend HTTP delivery, dependency
+  stop/start recovery, liveness, and the worker's independence from Redis.
+- No unnecessary abstraction, dead feature code, new service, product endpoint,
+  authentication, collaboration, queue processing, or code execution was added.
+  Repository constraints do not replace future service-layer authorization or
+  conditional execution transitions; those remain in their assigned milestones.
+- Remote CI for these uncommitted changes remains unverified. Frontend visual
+  browser checks were not repeated because its implementation is unchanged;
+  this review verified its build and HTTP delivery. No required Milestone 1
+  acceptance check remains failing, skipped, or unverified.
 
 ---
 

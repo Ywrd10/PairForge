@@ -82,13 +82,13 @@ class InfrastructureHealthIT {
     }
 
     @Test
-    void createsNoProductSchema() throws Exception {
+    void apiRunsTheInitialMigration() throws Exception {
         try (var connection = dataSource.getConnection();
              var statement = connection.createStatement();
              var result = statement.executeQuery(
-                     "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")) {
+                     "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success")) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isZero();
+            assertThat(result.getInt(1)).isEqualTo(1);
         }
     }
 

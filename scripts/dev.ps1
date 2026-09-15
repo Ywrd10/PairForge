@@ -26,10 +26,18 @@ try {
             )
         }
         'worker' {
-            Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
-                '--no-transfer-progress', '-pl', 'execution-worker', 'spring-boot:run',
-                '-Dspring-boot.run.profiles=local'
-            )
+            if (-not $env:WORKER_DB_PASSWORD) {
+                throw 'Provision worker credentials with scripts/provision-worker.ps1 before starting the worker.'
+            }
+            $bootstrapPassword = $env:POSTGRES_PASSWORD
+            try {
+                # The worker must not inherit the API/bootstrap database password.
+                $env:POSTGRES_PASSWORD = $null
+                Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
+                    '--no-transfer-progress', '-pl', 'execution-worker', 'spring-boot:run',
+                    '-Dspring-boot.run.profiles=local'
+                )
+            } finally { $env:POSTGRES_PASSWORD = $bootstrapPassword }
         }
         'frontend' {
             Push-Location (Join-Path $script:PairForgeRoot 'frontend')

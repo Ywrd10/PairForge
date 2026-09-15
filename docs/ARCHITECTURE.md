@@ -187,6 +187,32 @@ Use UUID identifiers, explicit foreign keys and NOT NULL constraints, and UTC
 `timestamptz` timestamps throughout. Enforce supported language/status values
 and field-size limits. Add schema changes with the milestone that needs them.
 
+Milestone 1 persistence decisions:
+
+- Normalize email with Java `trim()` followed by `toLowerCase(Locale.ROOT)`;
+  allow at most 254 characters and do not rewrite provider-specific aliases.
+  The database additionally rejects noncanonical or duplicate stored emails.
+  Email syntax validation and password hashing belong to Authentication.
+- Store password hashes in a nonempty field of at most 255 characters; model
+  constructors accept an already computed hash, never perform authentication.
+- Use application-generated UUIDs and `Instant` values truncated to microseconds
+  to match PostgreSQL precision. All foreign-key deletion rules are RESTRICT;
+  there are no implicit cascading deletes.
+- Model relationships as scalar UUID references, with database foreign keys;
+  `RoomMember` uses the composite primary key `(room_id, user_id)`. Avoid eager
+  entity graphs and cross-module entity dependencies.
+- Flyway migrations live only in the API. Hibernate uses `ddl-auto=validate`,
+  JDBC timestamps use UTC, and Open Session in View is disabled. A migration or
+  schema-validation failure prevents API startup. After startup, dependency loss
+  affects readiness while liveness remains independent.
+- Local worker credentials are distinct from the API/bootstrap credentials.
+  Repeatable provisioning grants only database connection and schema usage in
+  Milestone 1, with no table access, DDL, or temporary-table permission. The
+  provisioning step revokes both table and column grants and refuses roles with
+  existing object ownership or membership in other roles. The
+  worker neither migrates nor imports the API module. Grant narrowly scoped
+  execution permissions when its persistence path is implemented in Milestone 9.
+
 ---
 
 ### Room
@@ -198,6 +224,10 @@ and field-size limits. Add schema changes with the milestone that needs them.
     invitation_token_hash
     created_at
     updated_at
+
+Names contain 1–120 characters with at least one non-space character. Invitation
+hashes are SHA-256 encoded as 64 lowercase hexadecimal characters; token issuance
+and admission remain part of Milestone 3.
 
 ---
 
@@ -260,6 +290,14 @@ measure preparation/compilation separately from runtime.
 Failure reasons distinguish dispatch failure, dispatch unconfirmed, compilation,
 runtime, memory limit, output limit, and infrastructure interruption. A terminal
 FAILED execution may be created directly from QUEUED before code starts.
+
+Milestone 1 stores source and combined stdout/stderr with separate 64 KiB UTF-8
+byte budgets, enforced in PostgreSQL using `octet_length`. New executions have
+QUEUED status, empty output, revision zero, and nullable result/deadline timestamps.
+History reads use descending `(created_at, id)` ordering and bounded pages.
+Revision is an explicit state-transition counter, not a JPA `@Version` field;
+conditional claims, terminal-state protection, and authorization are implemented
+with the execution features, not inferred from this schema alone.
 
 ---
 

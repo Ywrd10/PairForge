@@ -10,7 +10,7 @@ function Initialize-PairForgeEnvironment {
     $template = [IO.File]::ReadAllText((Join-Path $script:PairForgeRoot '.env.example'))
     $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
     try {
-        foreach ($name in @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD')) {
+        foreach ($name in @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD', 'WORKER_DB_PASSWORD')) {
             $bytes = New-Object byte[] 24
             $generator.GetBytes($bytes)
             $value = ([BitConverter]::ToString($bytes)).Replace('-', '').ToLowerInvariant()
@@ -27,6 +27,7 @@ function Import-PairForgeEnvironment {
     $envPath = Join-Path $script:PairForgeRoot '.env'
     $allowed = @(
         'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_PORT',
+        'WORKER_DB_USER', 'WORKER_DB_PASSWORD',
         'REDIS_PORT', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD', 'RABBITMQ_PORT',
         'API_PORT', 'WORKER_PORT', 'FRONTEND_PORT'
     )

@@ -2,15 +2,15 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains the **Milestone 0 foundation**: two Spring Boot applications, a minimal
-React page, local infrastructure, health checks, and CI. Product features are
-not implemented yet.
+contains the foundation and **Milestone 1 persistence**: two Spring Boot
+applications, PostgreSQL models/migrations, a minimal React page, local
+infrastructure, health checks, and CI. There are no product REST endpoints yet.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Modular-monolith API; currently operational health only |
+| `backend/` | Modular-monolith API; health, Flyway migrations, JPA models/repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
 | `frontend/` | React + TypeScript + Vite foundation page |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
@@ -18,10 +18,11 @@ not implemented yet.
 | `.github/workflows/ci.yml` | Backend/worker integration tests and frontend checks |
 | `docs/` | Product specification, architecture, and milestone acceptance criteria |
 
-The runnable Java modules do not depend on each other. There are no domain
-entities, migrations, authentication, WebSockets, queue producers/consumers, or
-code-execution paths in this milestone. JDBC is present for real database health;
-JPA/Flyway belong to Milestone 1. No Docker socket is mounted into an application.
+The runnable Java modules do not depend on each other. The API owns Flyway
+migrations for users, rooms, membership, and execution records; Hibernate validates
+the schema and never creates it. Repositories are grouped by domain and use UUID
+references. Authentication, WebSockets, queue producers/consumers, and execution
+paths remain for later milestones. No Docker socket is mounted into an application.
 
 The browser loads Vite's HTML and React assets and renders the static foundation
 page; it does not call the API yet. A health request to the API checks PostgreSQL,
@@ -58,6 +59,24 @@ Initialization creates an ignored `.env` with cryptographically generated local
 database and broker passwords. It refuses to overwrite an existing `.env`.
 For subsequent starts, omit `-Initialize`. Alternatively copy `.env.example` to
 `.env` and supply unique passwords yourself.
+
+Provision the worker's separate database role after infrastructure is healthy:
+
+```powershell
+.\scripts\provision-worker.ps1
+```
+
+New initialization generates `WORKER_DB_PASSWORD` alongside the other secrets.
+For an existing Milestone 0 `.env`, first run
+`.\scripts\provision-worker.ps1 -InitializeCredentials`; this adds only missing
+worker credentials and preserves the existing database/broker passwords. After
+that, omit the flag. Provisioning is repeatable on fresh or existing data volumes;
+it sets a dedicated `pairforge_worker` role's password and restricted permissions
+without recreating the database. Use this role only for PairForge's worker.
+Provisioning refuses an existing role that owns objects or belongs to other
+roles. The local worker launcher also removes the API/bootstrap password from
+the child process environment. Local processes still share your development
+account; the deployed worker-host trust boundary is a later milestone.
 
 The environment parser accepts the keys documented in `.env.example`, using
 literal `KEY=VALUE` entries (letters, digits, `_`, `.`, `/`, `:`, `-`), blank lines,
@@ -105,7 +124,12 @@ For a non-local launch, supply `DATABASE_URL`, `DATABASE_USER`,
 `DATABASE_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_USER`, and `RABBITMQ_PASSWORD`;
 the API also needs `REDIS_HOST`. Optional broker/Redis ports have defaults.
 The default configuration still binds HTTP to loopback and exposes health only.
-Milestone 0 is not a production deployment configuration.
+For the worker, `DATABASE_USER`/`DATABASE_PASSWORD` must identify its restricted
+role; the local profile uses `WORKER_DB_USER`/`WORKER_DB_PASSWORD`. The worker has
+health connectivity only, no application-table reads/writes or schema ownership.
+Execution-table grants will accompany its execution persistence implementation.
+The local API uses the Compose bootstrap account to migrate; these local settings
+are not a production deployment configuration.
 
 ## Validation
 
@@ -119,10 +143,23 @@ failure, never a silent skip. Tests verify:
 - process liveness remains healthy during dependency outages;
 - aggregate health does not disclose connection details;
 - other Actuator endpoints remain unavailable;
-- no product database schema is created.
+- API-owned migrations run on a clean database and preserve data on repeat runs;
+- failed migrations roll back partial DDL and prevent API startup; altered
+  migration checksums are rejected;
+- all four models round-trip through PostgreSQL, with normalized unique emails,
+  foreign keys, membership uniqueness, deterministic history pagination, enum and
+  timestamp constraints, and UTF-8 source/output limits;
+- the worker creates no schema and its restricted role cannot read password
+  hashes, modify memberships, or create tables, schemas, or temporary tables.
+
+Unit tests cover email normalization, length boundaries, and locale independence.
+There is no registration or hashing endpoint yet; callers of the persistence model
+must provide a hash. Room-owner membership and execution state transitions are
+future service-layer transactions, not behavior supplied by repositories.
 
 ```powershell
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
+.\scripts\test-provision-worker.ps1
 Push-Location frontend
 npm.cmd ci
 npm.cmd run lint
@@ -130,6 +167,10 @@ npm.cmd run typecheck
 npm.cmd run build
 Pop-Location
 ```
+
+The credential-script tests use disposable files and a Docker stub. They verify
+LF/CRLF initialization, preservation of existing secrets, and overwrite refusal;
+they do not change your `.env` or contact your database. CI runs them with `pwsh`.
 
 With all applications running, validate the local environment:
 
@@ -153,17 +194,38 @@ is two seconds. RabbitMQ TCP connection, AMQP handshake, and channel RPC timeout
 are two seconds, with a five-second heartbeat. The handshake requires a small
 connection-factory customizer in each independent Java application.
 Dependency recovery does not require restarting the application.
+PostgreSQL must be available at API startup: migration or schema-validation errors
+fail startup rather than launching against an unknown schema. Fix the underlying
+problem and restart. Never edit an applied migration or use Flyway clean/repair
+as an automatic workaround; introduce a new version for subsequent schema changes.
 
 GitHub Actions runs the equivalent Maven and npm checks on Linux, using Docker
 for Testcontainers. Reports appear under each Java module's
-`target/failsafe-reports/` and are uploaded when available. Linux users can run
+`target/failsafe-reports/` (integration) and `target/surefire-reports/` (unit) and
+are uploaded when available. Linux users can run
 the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
 Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
 ## Shutdown and troubleshooting
 
-### Current verification status (2026-09-14)
+### Milestone 1 review verification (2026-09-15)
+
+Maven `clean verify` passes 76 tests (3 unit and 73 integration), with zero failures,
+errors, or skips. Clean/repeat migrations, failure rollback, persistence
+constraints, schema-drift startup rejection, and worker privilege checks pass.
+The review fixed empty-password detection in CRLF `.env` files and removed
+column-level grants during repeat worker provisioning; table-level revocation
+alone does not remove them. Credential tests pass in PowerShell 7 and Windows
+PowerShell 5.1 (with process-only execution-policy bypass on this machine).
+Frontend clean install/lint/typecheck/build, PowerShell syntax, Actionlint, and full local smoke
+checks pass, including real dependency stop/start recovery with the restricted
+worker credentials. The first review build failed because Docker was unavailable;
+its recurring stale sockets were backed up and recreated without altering its
+data disks before rerunning all Java checks. These changes have not been pushed, so a new
+remote CI run is unverified. See the roadmap for the acceptance evidence.
+
+### Milestone 0 verification (2026-09-14)
 
 Docker Desktop is running with Linux Engine 29.4.3. Maven `verify` passes all
 23 integration tests (12 API, 11 worker), with no failures, errors, or skips.
@@ -186,8 +248,8 @@ counted as passes. Expected outage warnings appear in successful test logs.
 [GitHub Actions run 34874301790](https://github.com/Ywrd10/PairForge/actions/runs/34874301790)
 passes for foundation commit `9795240` in the private `Ywrd10/PairForge` repository:
 both the Linux Java/container-test job and the frontend job succeed. All
-Milestone 0 acceptance checks pass, and the milestone is DONE. Milestone 1 has
-not started. No required check remains failing, skipped, or unverified.
+Milestone 0 acceptance checks passed, and the milestone is DONE. This run verifies
+the foundation commit only; it does not establish CI results for later changes.
 
 ### Docker recovery on the reviewed Windows machine
 
@@ -240,7 +302,7 @@ own test resources separately.
 
 Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
-[the roadmap](docs/ROADMAP.md) before extending the foundation. Milestone 0 is
-complete only when its acceptance checks pass; do not automatically start
-Milestone 1. The planned execution architecture retains the documented
+[the roadmap](docs/ROADMAP.md) before extending the application. Complete each
+milestone's acceptance checks before proceeding; do not automatically start
+Milestone 2. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

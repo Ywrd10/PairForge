@@ -25,6 +25,9 @@ jobs:
           cache: maven
       - name: Require Docker
         run: docker info
+      - name: Check worker credential initialization
+        shell: pwsh
+        run: ./scripts/test-provision-worker.ps1
       - name: Build and run real-container tests
         run: bash ./mvnw --batch-mode --no-transfer-progress verify
       - name: Upload test reports
@@ -33,6 +36,7 @@ jobs:
         with:
           name: java-test-reports
           path: |
+            backend/target/surefire-reports/
             backend/target/failsafe-reports/
             execution-worker/target/failsafe-reports/
           if-no-files-found: warn
