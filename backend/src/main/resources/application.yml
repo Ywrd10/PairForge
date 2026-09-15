@@ -44,8 +44,34 @@ spring:
       timeout: 2s
 
 server:
+  tomcat:
+    connection-timeout: 5s
+  forward-headers-strategy: none
   address: 127.0.0.1
   port: ${API_PORT:8080}
+
+pairforge:
+  auth:
+    key-hex: ${JWT_KEY_HEX:}
+    issuer: pairforge-api
+    audience: pairforge-browser
+    token-seconds: 900
+    bcrypt-cost: 12
+    allowed-origins:
+      - http://127.0.0.1:5173
+      - http://localhost:5173
+    login-ip-limit: 20
+    login-account-limit: 10
+    registration-ip-limit: 5
+    ip-window-seconds: 60
+    account-window-seconds: 900
+    registration-window-seconds: 3600
+
+# Driver constraint messages can contain rejected row values. Error handling logs
+# only exception types and request IDs instead.
+logging:
+  level:
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
 
 management:
   endpoints:

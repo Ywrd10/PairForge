@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 1 (DONE). Persistence acceptance checks pass.
-Milestone 2 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 2 (DONE). Authentication acceptance checks pass.
+Milestone 3 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -264,7 +264,7 @@ tests pass.
 
 ## Milestone 2 — Authentication
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -281,6 +281,90 @@ Deliverables:
 Acceptance test:
 
     register → login → receive token → access protected endpoint
+
+### Implementation and verification (2026-09-15)
+
+- Committed the reviewed Milestone 1 foundation as `a771844` before beginning
+  authentication. No Milestone 1 schema changes were needed for this milestone.
+- Added register/login and protected `/api/auth/me`, validated DTOs, BCrypt,
+  Spring Security resource-server JWT support, consistent errors/request IDs,
+  bounded JSON bodies, CORS, scoped CSRF exceptions, and stateless access.
+- Defaults are HS256 with an API-only 256-bit signing key, 900-second tokens,
+  BCrypt cost 12, minimum 15-character/maximum 72-byte UTF-8 passwords, and
+  explicit issuer/audience/subject/time validation. Refresh/revocation and
+  frontend authentication screens remain deferred as documented in Architecture.
+- Redis atomically applies expiring IP/account login limits and IP registration
+  limits before BCrypt. Invalid credentials are generic; concurrency, expiry,
+  forwarded-header spoofing, and Redis/PostgreSQL outage/recovery are tested.
+- Root Maven `clean verify` passed 113 tests. Four additional HTTP token cases
+  were then added and the expanded AuthIT rerun passed all 24 cases. Final report
+  set: 117 distinct passing tests (20 unit and 97 integration), with zero failures,
+  errors, or skips. PostgreSQL, Redis, and RabbitMQ tests use real containers.
+- Tests cover the complete auth flow, stored BCrypt hashes, duplicate/concurrent
+  registration, malformed/oversized/chunked bodies, UTF-8 limits, invalid signatures,
+  algorithms, issuers, audiences, subjects and timestamps, safe errors, CORS,
+  session/cookie/Basic rejection, management exposure, and dependency failures.
+  An initial import ambiguity and a transaction-start 500 response were fixed;
+  transaction/access failures now return safe 503 responses.
+- Credential initialization/isolation checks pass in PowerShell 7 and Windows
+  PowerShell 5.1. Fresh setup generates a signing key; the upgrade script preserves
+  other credentials and refuses overwrites. Worker/frontend launchers exclude it.
+- Frontend clean install/lint/typecheck/build, PowerShell syntax, Actionlint,
+  whitespace, and local secret scans pass. CI includes the new Java/script tests;
+  no remote CI run was triggered or claimed for these local changes.
+- The real local auth smoke flow passes with default BCrypt cost 12: registration,
+  login, authenticated identity, and 401 without a bearer token. Single local HTTP
+  samples were 983 ms register and 385 ms login; these are not throughput benchmarks.
+  One uniquely named smoke account remains in the local database.
+- Full infrastructure smoke tests pass after authentication is enabled: health,
+  restricted management exposure, frontend HTTP delivery, dependency stop/start
+  recovery, liveness, and worker independence from Redis.
+- All Milestone 2 acceptance criteria pass. No room API, WebSocket collaboration,
+  queue processing, sandbox execution, extra service, or Milestone 3 work was added.
+
+### Review verification (2026-09-15)
+
+- Re-read the project guidance and reviewed every authentication deliverable.
+  The full register → login → receive token → protected persisted identity flow
+  passes in both real HTTP integration tests and the local smoke script. Milestone
+  2 remains DONE; Milestone 3 remains TODO.
+- Regression tests exposed missing CORS headers on oversized-request errors and
+  a session cookie created by Spring's default CSRF repository on denied POSTs.
+  Request IDs now precede Security; JSON/body limits follow CORS/Security and
+  precede MVC. CSRF is disabled under the explicit bearer-only contract (no
+  browser-automatic credentials), with form/multipart inputs rejected before
+  parsing. Both anonymous and authenticated denied POSTs remain blocked without
+  creating sessions. The new form test also exposed and fixed a multipart 500.
+- Configuration rejects wildcard/malformed origins, JWTs are invalid at their
+  exact expiry, and exhausted counters remain blocked through their final
+  millisecond. Tests also verify denied attempts do not increment counters or
+  extend their window. Removed an unused security-test dependency.
+- Root Maven `clean verify`: all 134 tests pass (35 unit, 99 integration), with
+  zero failures, errors, or skips. Authentication contributes 26 real HTTP cases;
+  PostgreSQL, Redis, and RabbitMQ behavior uses real Testcontainers. Initial
+  regression failures were fixed and included in the final clean run. No test
+  flakiness was observed; expected outage warnings do not indicate test failures.
+- Frontend clean install, lint, typecheck and production build; both credential
+  script suites on PowerShell 7 and Windows PowerShell 5.1; script syntax;
+  Actionlint; whitespace; and local-secret exclusion checks pass.
+- Docker initially failed to start. With no Docker processes running, only the
+  verified zero-byte socket directories were backed up and recreated; Engine
+  29.4.3 then ran all required checks. Existing images/data volumes were preserved.
+  This recovers the local runtime; it does not claim to fix Docker Desktop's
+  underlying recurring socket problem.
+- Documented independent startup, repeat worker provisioning, loopback binding,
+  health/management exposure, frontend HTTP delivery, and full dependency
+  stop/start recovery pass. Auth smoke used default BCrypt cost 12 (877 ms
+  registration, 369 ms login, single local samples). One additional uniquely
+  named smoke account remains in the local database.
+- Review completed before the subsequent local Milestone 2 commit; remote CI
+  for these changes is unverified. The unchanged
+  frontend's visual browser check was not repeated. Neither is an outstanding
+  Milestone 2 acceptance criterion. No required check remains failing or skipped.
+- The API remains a modular monolith plus the independent foundation worker.
+  No migrations, room API, frontend authentication screens, WebSockets, queue
+  processing, execution, extra services, or other future-milestone features were
+  added. No remaining unnecessary abstraction or dead feature code was identified.
 
 ---
 

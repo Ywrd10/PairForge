@@ -326,6 +326,78 @@ expiry requires login. Validate signature, allowed algorithm, issuer, audience,
 and expiry. Refresh tokens are deferred. Apply login throttling and avoid
 credential/token disclosure in errors and logs.
 
+### Milestone 2 authentication contract
+
+- `POST /api/auth/register` accepts email/password, normalizes email using the
+  existing trim/lowercase rule, and returns 201 with `{id, email}`. A concurrent
+  duplicate hits the database unique constraint and returns 409; no registration
+  token is issued. Email ownership verification is not part of this milestone.
+- `POST /api/auth/login` returns `{accessToken, tokenType, expiresIn, expiresAt}`.
+  Unknown users and incorrect passwords receive the same 401 message; unknown
+  users still run one BCrypt comparison against a process-local dummy hash.
+- `GET /api/auth/me` is the protected acceptance endpoint. It derives the UUID
+  from the validated token and returns the persisted user's `{id, email}`.
+  A missing user is unauthorized. No room endpoints are implemented yet.
+- Passwords contain at least 15 Unicode code points and at most 72 UTF-8 bytes;
+  malformed Unicode and NUL are rejected. Passwords are never trimmed or silently
+  truncated. BCrypt cost defaults to 12; tests explicitly use 4 for speed.
+- The API signs HS256 JWTs using `JWT_KEY_HEX`, exactly 32 random bytes represented
+  by 64 hex characters. Missing/malformed keys fail startup without printing the
+  key. Spring's resource-server decoder allows HS256 only and validates issuer
+  `pairforge-api`, audience `pairforge-browser`, canonical UUID subject, required
+  iat/nbf/exp, and a maximum configured lifetime (default 900 seconds). Time
+  validation has zero clock skew. Tokens carry no email, password, or room claims.
+- REST authentication is stateless: no session, form login, Basic authentication,
+  refresh token, or logout/revocation endpoint. The future frontend holds the token
+  only in memory, sends Authorization headers, and requires login after reload or
+  expiry. Clearing browser memory does not revoke a stolen token; rotating the
+  signing key invalidates all outstanding tokens. Use HTTPS outside loopback.
+- CSRF is disabled for this bearer-header-only API: it accepts no automatically
+  attached authentication cookies, sessions, or Basic credentials. The credential
+  endpoints require JSON, and unmatched routes are denied by default. Reassess CSRF before
+  adding any browser-automatic credentials. CORS uses explicit configured origins
+  (startup rejects wildcards and malformed origins), GET/POST,
+  and Authorization/Content-Type headers, with credentialed cookies disabled.
+  The local profile tracks the configured frontend port. WebSocket security
+  remains a separate Milestone 6 concern.
+- Authentication bodies are capped at 4096 bytes, including chunked requests.
+  Request IDs precede security; body limits follow CORS/security and precede MVC,
+  so allowed browsers can read oversized-request errors and denied origins cannot
+  bypass CORS by sending oversized bodies. Non-JSON content types are rejected
+  before MVC can parse forms or multipart uploads.
+  Error bodies use `{code, message, requestId, fieldErrors}`; request IDs are
+  server-generated. Responses do not disclose rejected passwords/tokens or SQL
+  exception details. Non-health API Actuator requests are denied by Security
+  (401 without credentials, 403 with a valid token); worker endpoints remain 404.
+
+Default admission limits, configurable through `pairforge.auth` properties:
+
+| Operation | Limit | Window |
+| --- | --- | --- |
+| Login by peer IP | 20 attempts | 60 seconds |
+| Login by normalized account | 10 attempts | 900 seconds |
+| Registration by peer IP | 5 attempts | 3600 seconds |
+
+One Redis Lua operation checks and increments all relevant counters atomically,
+with expiry set on their first increment. Limits apply before BCrypt and count
+successful as well as failed valid-shaped attempts. Rejected attempts do not
+extend the window. Redis keys use domain-separated HMAC digests of identifiers.
+Return 429 with Retry-After on exhaustion and fail closed with 503 on Redis loss.
+Database access/transaction failures also return safe 503 responses; registration
+after an uncertain response may return 409, and login can confirm the account.
+No automatic database-operation retries are performed.
+
+Peer IP comes from the connection, ignoring client Forwarded/X-Forwarded-For
+headers. A trusted-proxy configuration must be deliberately added at deployment.
+These are basic abuse controls: shared IPs share a budget, account limits can
+temporarily deny legitimate login, and Redis eviction/restart or key rotation
+resets counters. There is no durable account lockout or IP-spoofable bypass.
+
+BCrypt runs outside database transactions. Repositories retain short transactions;
+no schema migration or API/worker module coupling is added for authentication.
+
+### Later WebSocket authentication
+
 Use STOMP over native WebSocket with the API's simple broker; no SockJS or
 RabbitMQ STOMP relay is needed. Authenticate the STOMP CONNECT frame using an
 interceptor before message authorization. Browser WebSocket handshakes do not

@@ -56,7 +56,8 @@ try {
         Wait-Probe "$baseUrl/actuator/health/readiness" 200 'UP'
         Assert-Http "$baseUrl/actuator/health/liveness" 200 'UP' | Out-Null
         foreach ($endpoint in @('env', 'configprops', 'heapdump', 'beans', 'metrics', 'loggers', 'shutdown')) {
-            Assert-Http "$baseUrl/actuator/$endpoint" 404 | Out-Null
+            $deniedCode = if ($baseUrl -eq $apiUrl) { 401 } else { 404 }
+            Assert-Http "$baseUrl/actuator/$endpoint" $deniedCode | Out-Null
         }
     }
     $html = Assert-Http "http://127.0.0.1:$frontendPort" 200

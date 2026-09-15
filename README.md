@@ -2,15 +2,15 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains the foundation and **Milestone 1 persistence**: two Spring Boot
-applications, PostgreSQL models/migrations, a minimal React page, local
-infrastructure, health checks, and CI. There are no product REST endpoints yet.
+contains **Milestone 2 authentication** on the persistence foundation: registration,
+login, JWT-protected identity, and Redis-backed authentication limits. The React
+page and worker remain foundations; room APIs and code execution are not enabled.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Modular-monolith API; health, Flyway migrations, JPA models/repositories |
+| `backend/` | Modular-monolith API; authentication, health, migrations, domain repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
 | `frontend/` | React + TypeScript + Vite foundation page |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
@@ -21,7 +21,7 @@ infrastructure, health checks, and CI. There are no product REST endpoints yet.
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. Authentication, WebSockets, queue producers/consumers, and execution
+references. Room APIs, WebSockets, queue producers/consumers, and execution
 paths remain for later milestones. No Docker socket is mounted into an application.
 
 The browser loads Vite's HTML and React assets and renders the static foundation
@@ -59,6 +59,12 @@ Initialization creates an ignored `.env` with cryptographically generated local
 database and broker passwords. It refuses to overwrite an existing `.env`.
 For subsequent starts, omit `-Initialize`. Alternatively copy `.env.example` to
 `.env` and supply unique passwords yourself.
+
+Fresh initialization also creates `JWT_KEY_HEX` for the API. To upgrade an existing
+Milestone 1 `.env`, run `.\scripts\initialize-auth.ps1` once. It preserves existing
+credentials and refuses to overwrite a signing key. The API requires 64 hex
+characters encoding 32 random bytes. Never put this key in a `VITE_` variable;
+the local launcher removes it from worker/frontend child environments.
 
 Provision the worker's separate database role after infrastructure is healthy:
 
@@ -122,8 +128,9 @@ configuration; it is not a production configuration.
 
 For a non-local launch, supply `DATABASE_URL`, `DATABASE_USER`,
 `DATABASE_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_USER`, and `RABBITMQ_PASSWORD`;
-the API also needs `REDIS_HOST`. Optional broker/Redis ports have defaults.
-The default configuration still binds HTTP to loopback and exposes health only.
+the API also needs `REDIS_HOST` and `JWT_KEY_HEX`. Optional broker/Redis ports have defaults.
+The default configuration still binds HTTP to loopback and exposes only health
+through Actuator. Authentication endpoints are served on the API port.
 For the worker, `DATABASE_USER`/`DATABASE_PASSWORD` must identify its restricted
 role; the local profile uses `WORKER_DB_USER`/`WORKER_DB_PASSWORD`. The worker has
 health connectivity only, no application-table reads/writes or schema ownership.
@@ -153,13 +160,16 @@ failure, never a silent skip. Tests verify:
   hashes, modify memberships, or create tables, schemas, or temporary tables.
 
 Unit tests cover email normalization, length boundaries, and locale independence.
-There is no registration or hashing endpoint yet; callers of the persistence model
-must provide a hash. Room-owner membership and execution state transitions are
+Authentication tests exercise real HTTP registration/login, hashing, validation,
+JWT and CORS failures, Redis limit concurrency/expiry, dependency failure/recovery,
+and stateless access. Tests use BCrypt cost 4; runtime defaults to 12.
+Room-owner membership and execution state transitions are
 future service-layer transactions, not behavior supplied by repositories.
 
 ```powershell
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
 .\scripts\test-provision-worker.ps1
+.\scripts\test-auth-environment.ps1
 Push-Location frontend
 npm.cmd ci
 npm.cmd run lint
@@ -177,6 +187,7 @@ With all applications running, validate the local environment:
 ```powershell
 .\scripts\smoke.ps1
 .\scripts\smoke.ps1 -CheckOutages
+.\scripts\smoke-auth.ps1
 ```
 
 `-CheckOutages` deliberately stops each **PairForge Compose** dependency and
@@ -184,6 +195,43 @@ restores it in a `finally` block. Use it only when no other work depends on thes
 local services. It verifies both processes, including that a Redis outage does
 not affect worker readiness. The smoke script checks frontend HTTP delivery;
 also inspect the page in a browser for rendering and runtime errors.
+
+`smoke-auth.ps1` verifies register → login → authenticated `/api/auth/me` and
+unauthenticated denial without printing passwords or tokens. It leaves one
+uniquely named smoke account in the local database and consumes a registration
+attempt. Repeated runs are subject to the configured authentication limits.
+
+## Authentication API
+
+| Request | Success |
+| --- | --- |
+| `POST /api/auth/register` with JSON email/password | 201 `{id, email}` |
+| `POST /api/auth/login` with JSON email/password | 200 `{accessToken, tokenType, expiresIn, expiresAt}` |
+| `GET /api/auth/me` with `Authorization: Bearer <token>` | 200 `{id, email}` |
+
+Passwords require 15 characters and no more than 72 UTF-8 bytes; they are not
+trimmed. Emails use the existing normalized unique representation. Duplicate
+registration returns 409. Invalid/missing credentials return 401, denied authenticated
+routes or origins 403, invalid input 400, non-JSON auth bodies 415, oversized JSON
+auth bodies 413, throttling 429 with
+Retry-After, and unavailable authentication dependencies 503. Errors contain a
+code, safe message, request ID, and field-error map, never rejected secret values.
+
+Defaults: HS256, 15-minute tokens, BCrypt cost 12; login limits of 20 per IP/minute
+and 10 per account/15 minutes, registration limit of 5 per IP/hour. The Redis
+operation is atomic and expiry-bounded. Admission fails closed on Redis outage;
+Redis loss resets counters. Forwarded IP headers are ignored. Configure these
+defaults under `pairforge.auth` in Spring configuration; no proxy trust is assumed.
+
+The frontend token contract is memory-only, requiring login after reload/expiry.
+No refresh tokens or server-side logout revocation are implemented. Cookie/form
+authentication is disabled. CORS permits explicit configured frontend origins;
+wildcard/malformed origins fail startup. CSRF is disabled because this API accepts
+only explicit bearer headers, never browser-automatic authentication credentials;
+reassess it before adding cookies, sessions, or Basic authentication. JSON-only
+credential endpoints reject form/multipart bodies before parsing. HTTPS and deliberately configured
+origins/proxy trust are required for deployment. Frontend auth screens start in
+Milestone 4. See Architecture for the full contract and known tradeoffs.
 
 Readiness is `/actuator/health/readiness` (PostgreSQL/RabbitMQ, plus Redis for
 the API). Liveness is `/actuator/health/liveness` and is independent of those
@@ -208,6 +256,34 @@ Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
 ## Shutdown and troubleshooting
+
+### Milestone 2 verification (2026-09-15)
+
+Milestone 1 was committed as `a771844`. Authentication passes its complete
+register/login/protected-user acceptance flow. The final review's root Maven
+`clean verify` passes all 134 tests (35 unit, 99 integration), with zero failures,
+errors, or skips. The 26 real HTTP authentication cases include dependency loss
+and recovery. No test flakiness was observed.
+
+The review fixed missing CORS headers on oversized-request errors, accidental
+CSRF-created sessions on denied POSTs, and a multipart-request 500. Request IDs
+now precede Security while JSON/body enforcement follows it. Bearer-only security
+creates no sessions, and form/multipart bodies are rejected before parsing. Added
+tests cover those regressions, explicit-origin configuration, exact JWT expiry,
+and unchanged rate-limit windows on denial. An unused security-test dependency
+was removed. The earlier transaction-start failure remains covered by outage tests.
+
+Frontend clean install/lint/typecheck/build, both credential-script suites on
+PowerShell 7/Windows PowerShell 5.1, script/workflow syntax, whitespace/secret
+checks, and full infrastructure/authentication smoke tests pass. Local API smoke
+used default BCrypt cost 12; this review's single register/login HTTP samples were
+877/369 ms, not throughput benchmarks. This smoke run left one additional uniquely
+named local account. Docker's recurring stale socket directories were preserved
+and recreated before verification; its data volumes were not deleted.
+Milestone 2 is committed locally following review; remote CI for it is unverified.
+The unchanged frontend's visual browser check was not repeated; build and HTTP
+delivery passed. No required Milestone 2 acceptance check is unverified, and no
+Milestone 3 functionality was introduced.
 
 ### Milestone 1 review verification (2026-09-15)
 
@@ -304,5 +380,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 2. The planned execution architecture retains the documented
+Milestone 3. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

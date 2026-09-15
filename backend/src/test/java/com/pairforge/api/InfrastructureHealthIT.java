@@ -51,6 +51,9 @@ class InfrastructureHealthIT {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
+        registry.add("pairforge.auth.key-hex", () -> UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", ""));
+        registry.add("pairforge.auth.bcrypt-cost", () -> 4);
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -95,7 +98,7 @@ class InfrastructureHealthIT {
     @ParameterizedTest
     @ValueSource(strings = {"env", "configprops", "heapdump", "beans", "metrics", "loggers", "shutdown"})
     void doesNotExposeOtherActuatorEndpoints(String endpoint) throws Exception {
-        assertThat(get("/actuator/" + endpoint).statusCode()).isEqualTo(404);
+        assertThat(get("/actuator/" + endpoint).statusCode()).isEqualTo(401);
     }
 
     @ParameterizedTest

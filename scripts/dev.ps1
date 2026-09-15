@@ -6,10 +6,12 @@ param(
 )
 
 . (Join-Path $PSScriptRoot 'environment.ps1')
+$originalJwtKey = $env:JWT_KEY_HEX
 Push-Location $script:PairForgeRoot
 try {
     if ($Initialize) { Initialize-PairForgeEnvironment }
     Import-PairForgeEnvironment
+    if ($Service -ne 'backend') { $env:JWT_KEY_HEX = $null }
     switch ($Service) {
         'infrastructure' {
             Invoke-PairForgeCommand docker @('compose', 'config', '--quiet')
@@ -20,6 +22,9 @@ try {
             Invoke-PairForgeCommand docker @('compose', 'stop')
         }
         'backend' {
+            if ($env:JWT_KEY_HEX -notmatch '^[a-fA-F0-9]{64}$') {
+                throw 'Initialize the API signing key with scripts/initialize-auth.ps1.'
+            }
             Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
                 '--no-transfer-progress', '-pl', 'backend', 'spring-boot:run',
                 '-Dspring-boot.run.profiles=local'
@@ -47,4 +52,7 @@ try {
             } finally { Pop-Location }
         }
     }
-} finally { Pop-Location }
+} finally {
+    $env:JWT_KEY_HEX = $originalJwtKey
+    Pop-Location
+}

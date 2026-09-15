@@ -25,9 +25,11 @@ jobs:
           cache: maven
       - name: Require Docker
         run: docker info
-      - name: Check worker credential initialization
+      - name: Check credential initialization and isolation
         shell: pwsh
-        run: ./scripts/test-provision-worker.ps1
+        run: |
+          ./scripts/test-provision-worker.ps1
+          ./scripts/test-auth-environment.ps1
       - name: Build and run real-container tests
         run: bash ./mvnw --batch-mode --no-transfer-progress verify
       - name: Upload test reports

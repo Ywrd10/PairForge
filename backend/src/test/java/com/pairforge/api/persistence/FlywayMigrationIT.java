@@ -86,6 +86,9 @@ class FlywayMigrationIT {
                 "--spring.flyway.default-schema=" + schema,
                 "--spring.jpa.properties.hibernate.default_schema=" + schema,
                 "--spring.flyway.locations=" + locations,
+                "--pairforge.auth.key-hex=" + UUID.randomUUID().toString().replace("-", "")
+                        + UUID.randomUUID().toString().replace("-", ""),
+                "--pairforge.auth.bcrypt-cost=4",
                 "--spring.rabbitmq.host=127.0.0.1", "--spring.rabbitmq.username=test",
                 "--spring.rabbitmq.password=" + UUID.randomUUID(),
                 "--spring.data.redis.host=127.0.0.1");

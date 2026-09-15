@@ -8,3 +8,9 @@ spring:
   data:
     redis:
       host: 127.0.0.1
+
+pairforge:
+  auth:
+    allowed-origins:
+      - http://127.0.0.1:${FRONTEND_PORT:5173}
+      - http://localhost:${FRONTEND_PORT:5173}
