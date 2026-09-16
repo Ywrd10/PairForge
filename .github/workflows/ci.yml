@@ -46,7 +46,7 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -60,4 +60,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Package API for browser acceptance (Java tests run in the java job)
+        working-directory: .
+        run: bash ./mvnw --batch-mode --no-transfer-progress -pl backend -am -DskipTests package
+      - run: npx playwright install --with-deps chromium
+      - name: Browser acceptance with isolated real dependencies
+        run: npm run test:e2e

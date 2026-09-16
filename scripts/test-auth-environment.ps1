@@ -4,7 +4,7 @@ $fixture = Join-Path ([IO.Path]::GetTempPath()) ('pairforge-auth-test-' + [guid]
 $fixtureScripts = Join-Path $fixture 'scripts'
 [void][IO.Directory]::CreateDirectory($fixtureScripts)
 [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'frontend'))
-$keys = @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD', 'WORKER_DB_PASSWORD', 'JWT_KEY_HEX')
+$keys = @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD', 'WORKER_DB_PASSWORD', 'JWT_KEY_HEX', 'API_PORT', 'VITE_API_BASE_URL', 'PAIRFORGE_TEST_EXPECTED_API')
 $saved = @{}
 foreach ($key in $keys) { $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
 try {
@@ -18,6 +18,9 @@ function Invoke-PairForgeCommand {
     if ($Arguments -contains 'backend') {
         if ($env:JWT_KEY_HEX -notmatch '^[a-f0-9]{64}$') { throw 'API did not receive its key.' }
     } elseif ($env:JWT_KEY_HEX) { throw 'Non-API process inherited the signing key.' }
+    if ($Executable -eq 'npm.cmd') {
+        if ($env:VITE_API_BASE_URL -ne $env:PAIRFORGE_TEST_EXPECTED_API) { throw 'Frontend API URL did not match the configured port/override.' }
+    }
 }
 '@
     [IO.File]::AppendAllText((Join-Path $fixtureScripts 'environment.ps1'), "`n" + $stub)
@@ -37,8 +40,15 @@ function Invoke-PairForgeCommand {
         catch { if ($_.Exception.Message -notlike 'JWT_KEY_HEX already exists*') { throw }; $refused = $true }
         if (-not $refused -or [IO.File]::ReadAllText($envPath) -cne $updated) { throw 'Existing key was overwritten.' }
         foreach ($service in @('backend', 'worker', 'frontend')) {
+            $env:API_PORT = '18081'
+            $env:PAIRFORGE_TEST_EXPECTED_API = 'http://127.0.0.1:18081'
             & (Join-Path $fixtureScripts 'dev.ps1') -Service $service
         }
+        if ($env:VITE_API_BASE_URL) { throw 'Launcher did not restore the API URL.' }
+        $env:VITE_API_BASE_URL = 'https://api.example.test'
+        $env:PAIRFORGE_TEST_EXPECTED_API = $env:VITE_API_BASE_URL
+        & (Join-Path $fixtureScripts 'dev.ps1') -Service frontend
+        if ($env:VITE_API_BASE_URL -ne $env:PAIRFORGE_TEST_EXPECTED_API) { throw 'Explicit API URL was not preserved.' }
         if ($env:JWT_KEY_HEX) { throw 'Launcher did not restore the caller environment.' }
     }
     Write-Host 'Auth environment tests passed: LF/CRLF, preservation, overwrite refusal, API-only signing key.'

@@ -396,6 +396,42 @@ resets counters. There is no durable account lockout or IP-spoofable bypass.
 BCrypt runs outside database transactions. Repositories retain short transactions;
 no schema migration or API/worker module coupling is added for authentication.
 
+### Milestone 4 browser contract
+
+- The Vite React SPA uses React Router declarative routes for `/login`, `/register`,
+  `/dashboard`, and `/rooms/:roomId`. Room routes display authorized metadata only;
+  Monaco and all collaboration/execution controls remain later milestones.
+- A small session object holds the JWT privately in memory and exposes user/expiry
+  state through a React provider. Login confirms identity with `/api/auth/me`.
+  Registration does not log in automatically. Logout/reload removes browser state,
+  without implying server-side token revocation. No cookies, localStorage,
+  sessionStorage, refresh tokens, or client-side JWT authorization are introduced.
+- Expiry is checked by a timer, on focus/visibility changes, and before/after
+  protected requests. Authenticated 401s clear the current session. Session changes
+  abort pending requests and reject stale responses, so old data or late login
+  results cannot restore a logged-out account or overwrite another login.
+- The typed fetch client uses a fixed public `VITE_API_BASE_URL`, explicit bearer
+  headers, omitted cookies, no-store requests, refused redirects, a 15-second
+  timeout, and cancellation. It displays safe API field errors, request IDs, and
+  Retry-After information. POSTs have no automatic retry; forms prevent duplicate
+  in-flight submissions. Read failures have explicit refresh controls.
+  Successful auth/room payloads are checked at runtime before entering session or
+  UI state; malformed data produces a safe error instead of a broken page or
+  invitation. Local validation failures do not imply that a write was dispatched.
+- Dashboard room lists use the existing 20-item pagination contract. Create returns
+  a one-time invitation display with copy and manual-copy fallback. The owner must
+  save the room ID/token before navigating away; the frontend neither stores the
+  token durably nor encodes it in a share URL. Join sends it only in the JSON body.
+  An uncertain create displays the duplicate-room/unrecoverable-invitation warning.
+- UI route guards control navigation; the API remains the authorization authority.
+  Post-login destinations are restricted to known internal routes. React renders
+  user-supplied names and error text as text, never raw HTML.
+- Vitest/Testing Library verify state and failure behavior. Playwright verifies
+  real browser workflows against an isolated API and fresh instances of the same
+  three infrastructure dependencies. Test-only cost/rate configuration does not
+  change production defaults. CI retains the independent full Java integration
+  suite and adds frontend unit and browser checks.
+
 ### Later WebSocket authentication
 
 Use STOMP over native WebSocket with the API's simple broker; no SockJS or

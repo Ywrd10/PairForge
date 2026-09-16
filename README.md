@@ -2,9 +2,9 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 3 room management** on the authentication/persistence
-foundation: create rooms, share invitations, join, and retrieve authorized rooms.
-The React page and worker remain foundations; code execution is not enabled.
+contains the **Milestone 4 browser application** on the authentication and room
+foundation: register, log in, create rooms, share invitations, join, and open
+authorized room overviews. The worker remains a foundation; code execution is not enabled.
 
 ## Structure
 
@@ -12,7 +12,7 @@ The React page and worker remain foundations; code execution is not enabled.
 | --- | --- |
 | `backend/` | Modular-monolith API; authentication, rooms, health, migrations, domain repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
-| `frontend/` | React + TypeScript + Vite foundation page |
+| `frontend/` | React + TypeScript + Vite browser authentication and room workflows |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
 | `scripts/` | Windows development/environment and smoke-check commands |
 | `.github/workflows/ci.yml` | Backend/worker integration tests and frontend checks |
@@ -24,8 +24,9 @@ the schema and never creates it. Repositories are grouped by domain and use UUID
 references. WebSockets, queue producers/consumers, and execution
 paths remain for later milestones. No Docker socket is mounted into an application.
 
-The browser loads Vite's HTML and React assets and renders the static foundation
-page; it does not call the API yet. A health request to the API checks PostgreSQL,
+The browser loads the React application, logs in through the API, and holds its
+access token in memory. Protected requests send a bearer header; the API validates
+the caller and PostgreSQL room membership before returning data. A health request to the API checks PostgreSQL,
 Redis, and RabbitMQ. Worker health checks PostgreSQL and RabbitMQ independently.
 Readiness aggregates those checks into HTTP 200/UP or 503/DOWN, while liveness
 reports process state. These probes create no product records or execution jobs.
@@ -109,8 +110,25 @@ Then use three separate terminals, each at the repository root:
 ```
 
 Each command stays attached to its application. Open
-[the frontend](http://127.0.0.1:5173). Its page is a static foundation screen,
-not a live infrastructure-health dashboard.
+[the frontend](http://127.0.0.1:5173). Create an account, log in, create a room,
+save its invitation, and choose **Open room**. A second account can join from the
+dashboard using the room ID and invitation token. The overview displays room
+metadata; the editor comes in Milestone 5.
+
+The frontend launcher derives its public API URL from `API_PORT` (default 8080).
+To override it, set `VITE_API_BASE_URL` in the process environment, or use a
+frontend-only ignored `frontend/.env.local` when running npm directly. Production
+builds also consume this value at build time. It is public configuration, never a
+place for signing keys or other secrets. Keep the API's explicit allowed origins
+aligned with the frontend URL. A future static host must serve `index.html` for
+client routes such as `/rooms/<id>`; Vite handles this locally.
+
+Tokens and room invitations are held only in memory. Reload/expiry requires login;
+logout clears local state but does not revoke the issued JWT. Invitations are shown
+only after creation: copy/save them securely before leaving the page. The app does
+not put them in URLs or browser storage. If a create response is lost, check the
+room list before retrying: another create can produce a duplicate, and the lost
+invitation cannot be recovered. Failed writes are never retried automatically.
 
 | Component | Default local address |
 | --- | --- |
@@ -263,8 +281,8 @@ wildcard/malformed origins fail startup. CSRF is disabled because this API accep
 only explicit bearer headers, never browser-automatic authentication credentials;
 reassess it before adding cookies, sessions, or Basic authentication. JSON-only
 credential endpoints reject form/multipart bodies before parsing. HTTPS and deliberately configured
-origins/proxy trust are required for deployment. Frontend auth screens start in
-Milestone 4. See Architecture for the full contract and known tradeoffs.
+origins/proxy trust are required for deployment. See Architecture for the full
+contract and known tradeoffs.
 
 Readiness is `/actuator/health/readiness` (PostgreSQL/RabbitMQ, plus Redis for
 the API). Liveness is `/actuator/health/liveness` and is independent of those
@@ -288,7 +306,71 @@ the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
 Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
+## Browser tests (Milestone 4)
+
+Build the backend jar first with the root Maven verification command. Then:
+
+```powershell
+Push-Location frontend
+npm.cmd ci
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd test
+npm.cmd run build
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
+Pop-Location
+```
+
+Browser tests require Docker and JDK 21; they never skip missing infrastructure.
+They launch fresh PostgreSQL/Redis/RabbitMQ containers with generated credentials,
+an API on port 18080, and Vite on 15173. Both application ports must be free. The
+test API explicitly uses BCrypt cost 4 and higher IP admission budgets; normal
+application defaults remain unchanged. Test users/rooms live only in the temporary
+database. Normal teardown stops the API and removes these containers and their
+volumes. Forced termination may require removing the specific
+`pairforge-e2e-<run-id>-*` containers shown by `docker ps -a`.
+
+Tests cover the real register/login/create/open and invitation admission flows;
+browser-intercepted failures separately cover unavailable requests and expired
+authentication. Vitest covers request handling, stale responses, forms, and
+pagination. GitHub Actions runs the same checks. Browser traces/videos/screenshots
+are disabled because they can contain credentials or invitations. Local Playwright
+failure artifacts are ignored by Git and are not uploaded by CI.
+
 ## Shutdown and troubleshooting
+
+### Milestone 4 review verification (2026-09-16)
+
+Milestone 4 remains DONE after independent review. Fixed malformed successful API
+responses reaching the UI unchecked, a misleading uncertain-write warning for
+locally rejected room names, and mobile overflow for maximum-length room names.
+The review adds regression coverage without changing the backend or API contract.
+
+Final checks pass: 162 Java tests (38 unit, 124 integration), 29 frontend tests,
+3 real-browser tests, clean install/lint/typecheck/build, dependency audit,
+PowerShell 7/5.1 launcher/credential checks, Actionlint, whitespace and secret scans.
+Initial regression failures were fixed; no final test is failing or skipped, and
+no unresolved flakiness was observed. Temporary test resources were removed.
+
+Docker needed the same socket-only startup recovery; images/volumes were preserved.
+Its underlying recurring startup issue remains external to the project. Changes
+are still uncommitted and remote CI is unverified. Milestone 5 remains TODO.
+
+### Milestone 4 verification (2026-09-16)
+
+Milestone 4 is DONE. Root Maven verification passes 162 tests (38 unit, 124
+integration), with zero failures/errors/skips. Clean frontend install, lint,
+typecheck, 24 unit/component tests, production build, and both real-browser tests
+pass. Browser acceptance verifies registration through opening a room, invitation
+admission/denial, logout/reload/expiry, and failure handling. Desktop/mobile visual
+checks, PowerShell 7/5.1 credential/launcher tests, Actionlint, whitespace and
+local-secret checks pass. Dependency audit reports no known vulnerabilities.
+
+The browser harness uses temporary data and removes its API and containers.
+Windows clipboard line-ending and Java launcher cleanup issues found during
+verification were fixed; final checks pass. Changes remain local and uncommitted,
+so remote CI for this milestone is unverified. Milestone 5 has not begun.
 
 ### Milestone 3 review verification (2026-09-16)
 

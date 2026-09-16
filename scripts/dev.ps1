@@ -45,11 +45,16 @@ try {
             } finally { $env:POSTGRES_PASSWORD = $bootstrapPassword }
         }
         'frontend' {
+            $originalApiBase = $env:VITE_API_BASE_URL
             Push-Location (Join-Path $script:PairForgeRoot 'frontend')
             try {
+                if (-not $env:VITE_API_BASE_URL) {
+                    $apiPort = if ($env:API_PORT) { $env:API_PORT } else { '8080' }
+                    $env:VITE_API_BASE_URL = "http://127.0.0.1:$apiPort"
+                }
                 $frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { '5173' }
                 Invoke-PairForgeCommand npm.cmd @('run', 'dev', '--', '--port', $frontendPort)
-            } finally { Pop-Location }
+            } finally { $env:VITE_API_BASE_URL = $originalApiBase; Pop-Location }
         }
     }
 } finally {

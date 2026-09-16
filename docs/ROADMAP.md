@@ -479,7 +479,7 @@ guard against an accidental two-user cap; do not build capacity-management UI.
 
 ## Milestone 4 — Frontend Application
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -496,6 +496,87 @@ Acceptance test:
 
 A user can register, log in, create a room, and open it entirely through the
 browser.
+
+### Implementation and verification (2026-09-16)
+
+- Added login/registration, protected dashboard and room-overview routes, typed
+  API modules, and a centralized memory-only session. Registration leads to login;
+  login confirms `/api/auth/me`. Expiry timers, focus/visibility checks, request
+  guards, and authenticated 401s require a new login. Logout cancels requests and
+  clears protected content; stale responses cannot restore an earlier session.
+- Dashboard lists authorized rooms with pagination, creates rooms with a default
+  Java/Python language, displays the one-time invitation with copy/manual fallback,
+  and joins using room ID/token. Opening a room fetches authorized metadata.
+  Invitations never enter URLs or persistent browser storage. Uncertain creation
+  warns about duplicate rooms and unrecoverable invitations; writes are not retried
+  automatically and in-flight form submissions cannot be duplicated.
+- The public API URL follows the configured API port in the Windows launcher and
+  supports an explicit frontend override. Signing keys remain isolated from the
+  frontend. Added React Router, Vitest/Testing Library, and Playwright with pinned
+  dependencies; no new backend dependency, endpoint, schema, or worker behavior.
+- Root Maven `clean verify`: 162 tests pass (38 unit, 124 integration), zero
+  failures/errors/skips. Existing PostgreSQL/Redis/RabbitMQ container tests ran.
+- Clean `npm ci`, lint, typecheck, all 24 Vitest tests, and production build pass.
+  Dependency install/audit reports zero known vulnerabilities. Tests cover API
+  errors, timeout/cancellation, no write retries, expired/invalid login, 401/503,
+  stale response/login races, registration, protected routing, pagination,
+  duplicate creation, invitation copy fallback, logout, and focus-time expiry.
+- Both Playwright tests pass against a fresh API and isolated real PostgreSQL,
+  Redis, and RabbitMQ. Browser acceptance covers registration, login, creation,
+  invitation copying, opening, second-user invalid invitation/unauthorized-read
+  denial, valid admission, room listing, logout, reload, and timed expiry. A
+  separate browser fault test covers network loss/uncertain creation and 401.
+- Initial browser checks exposed Windows clipboard newline differences and a
+  Java PATH shim leaving a child process after teardown. The assertion now compares
+  normalized newlines; teardown stops its owned process tree. Final reruns pass,
+  and test API/containers are removed. No required check is skipped or failing;
+  no unresolved flakiness was observed. The normal local database is untouched.
+- Desktop/mobile visual checks passed using non-sensitive fixture data, including
+  room navigation and no horizontal overflow. Launcher/credential tests pass on
+  PowerShell 7 and 5.1; Actionlint, whitespace and local-secret checks pass. CI now
+  includes frontend unit and real-browser acceptance alongside the Java suite.
+  Remote CI for these local, uncommitted changes remains unverified.
+- README and Architecture document the browser flow, configuration, tests, and
+  memory/invitation limitations. Milestone 5 remains TODO: no Monaco, WebSockets,
+  editor controls, collaboration, or execution functionality was introduced.
+
+### Review verification (2026-09-16)
+
+- Re-read the project guidance and checked every Milestone 4 deliverable. Browser
+  registration, login, dashboard, authenticated routing, API integration, room
+  creation/opening, invitation sharing/admission, and login-expiry handling pass.
+  The register → login → create → open acceptance flow passes against the real API.
+- Fixed three review findings: successful JSON responses were trusted without
+  checking their shape, local blank-name validation incorrectly suggested an
+  uncertain write, and a valid 120-character unbroken room name overflowed mobile
+  headings. Auth/room API boundaries now reject malformed payloads with safe errors;
+  local validation uses 400 semantics; headings wrap. No additional dependency or
+  backend/API/schema change was needed.
+- Four new regressions initially failed on malformed identity/list/create payloads
+  and the misleading local-validation warning. A browser regression reproduced
+  mobile overflow. All now pass, along with a dashboard recovery test proving
+  malformed responses leave navigation and refresh usable.
+- Final Maven `clean verify`: 162 tests pass (38 unit, 124 integration), zero
+  failures/errors/skips. Clean frontend install, lint, typecheck, all 29 Vitest
+  tests, production build, and all 3 Playwright tests pass. Dependency audit reports
+  no known vulnerabilities. Browser tests cover real admission/authorization,
+  reload/logout/expiry, network/401 handling, and maximum-length mobile room names.
+- Credential/launcher checks pass on PowerShell 7 and 5.1; Actionlint, changed/new
+  file whitespace checks, and local-secret scans pass. The browser-test API and
+  containers were removed; tests did not change the normal development database.
+- Docker was initially stopped, then hit its recurring inaccessible socket error.
+  After verifying Docker had exited, only the known zero-byte runtime socket
+  directories were backed up/recreated. Engine 29.4.3 then ran all required tests;
+  images and data volumes were preserved. This restores operation but does not
+  resolve Docker Desktop's underlying recurring startup problem.
+- Reviewed session ownership, secret handling, authorization boundaries, failure
+  messages, cancellation, dependencies, cleanup, and scope. No remaining blocker,
+  obvious dead feature code, unnecessary architectural layer, or future-milestone
+  feature was identified. Milestone 4 remains DONE; Milestone 5 remains TODO.
+- No final local test is failing or skipped; no unresolved flakiness was observed.
+  Remote GitHub Actions for these uncommitted changes remains unverified. Desktop
+  visual screenshots from implementation were not repeated; current browser
+  acceptance and mobile layout regressions passed.
 
 ---
 
