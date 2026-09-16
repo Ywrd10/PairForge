@@ -14,16 +14,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 @Order(SecurityProperties.DEFAULT_FILTER_ORDER + 1)
 public class RequestBoundaryFilter extends OncePerRequestFilter {
-    private static final int MAX_AUTH_BYTES = 4096;
+    private static final int MAX_JSON_BYTES = 4096;
     private final ApiErrors errors;
     public RequestBoundaryFilter(ApiErrors errors) { this.errors = errors; }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                              FilterChain chain) throws ServletException, IOException {
-        boolean authBody = request.getMethod().equals("POST") &&
+        boolean boundedBody = request.getMethod().equals("POST") &&
                 (request.getServletPath().equals("/api/auth/login")
-                        || request.getServletPath().equals("/api/auth/register"));
-        if (!authBody) {
+                        || request.getServletPath().equals("/api/auth/register")
+                        || request.getServletPath().equals("/api/rooms")
+                        || request.getServletPath().matches("/api/rooms/[^/]+/join"));
+        if (!boundedBody) {
             chain.doFilter(request, response);
             return;
         }
@@ -38,13 +40,13 @@ public class RequestBoundaryFilter extends OncePerRequestFilter {
             errors.write(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json");
             return;
         }
-        if (request.getContentLengthLong() > MAX_AUTH_BYTES) {
-            errors.write(response, 413, "REQUEST_TOO_LARGE", "Authentication requests are limited to 4096 bytes");
+        if (request.getContentLengthLong() > MAX_JSON_BYTES) {
+            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to 4096 bytes");
             return;
         }
-        byte[] body = request.getInputStream().readNBytes(MAX_AUTH_BYTES + 1);
-        if (body.length > MAX_AUTH_BYTES) {
-            errors.write(response, 413, "REQUEST_TOO_LARGE", "Authentication requests are limited to 4096 bytes");
+        byte[] body = request.getInputStream().readNBytes(MAX_JSON_BYTES + 1);
+        if (body.length > MAX_JSON_BYTES) {
+            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to 4096 bytes");
             return;
         }
         chain.doFilter(new HttpServletRequestWrapper(request) {
@@ -55,7 +57,7 @@ public class RequestBoundaryFilter extends OncePerRequestFilter {
                     @Override public boolean isFinished() { return input.available() == 0; }
                     @Override public boolean isReady() { return true; }
                     @Override public void setReadListener(ReadListener listener) {
-                        throw new UnsupportedOperationException("Synchronous authentication requests only");
+                        throw new UnsupportedOperationException("Synchronous JSON requests only");
                     }
                 };
             }

@@ -337,7 +337,7 @@ credential/token disclosure in errors and logs.
   users still run one BCrypt comparison against a process-local dummy hash.
 - `GET /api/auth/me` is the protected acceptance endpoint. It derives the UUID
   from the validated token and returns the persisted user's `{id, email}`.
-  A missing user is unauthorized. No room endpoints are implemented yet.
+  A missing user is unauthorized. Room endpoints also require a persisted user.
 - Passwords contain at least 15 Unicode code points and at most 72 UTF-8 bytes;
   malformed Unicode and NUL are rejected. Passwords are never trimmed or silently
   truncated. BCrypt cost defaults to 12; tests explicitly use 4 for speed.
@@ -446,6 +446,53 @@ owner. `POST /api/rooms/{roomId}/join` requires the token in the request body;
 knowledge of the room ID alone never grants membership. All members may edit,
 select the active document language, submit executions, and read room history.
 Any later capacity policy must be configurable and atomically enforced.
+
+### Milestone 3 room contract
+
+- All four room routes require a valid bearer token and an existing user. The
+  server derives owner/member IDs from the token; request-supplied identity is
+  ignored. Membership remains durable PostgreSQL state.
+- `POST /api/rooms` accepts `{name, language}` and returns 201 with
+  `{room, invitationToken}` and `Location: /api/rooms/{id}`. Names must be nonblank,
+  valid Unicode without NUL, and at most 120 Java UTF-16 code units. Language must
+  be the string `JAVA` or `PYTHON`; numeric enum ordinals are rejected.
+- Room metadata is `{id, ownerId, name, language, createdAt, updatedAt}`. Ordinary
+  detail/list/join responses contain no invitation or hash. Membership records
+  remain in the existing table; no unbounded member roster is embedded in room
+  responses. Language is the room default, not collaborative editor state.
+- Creation persists room and owner membership in one transaction. A membership
+  failure rolls back the room. No schema change is required.
+- Invitations use 32 SecureRandom bytes encoded as 43 unpadded Base64URL
+  characters. Only a lowercase SHA-256 hash of that encoded token is persisted;
+  comparison uses constant-time digest comparison. Tokens are accepted only in
+  JSON bodies and are redacted from DTO string representations. Responses use
+  no-store caching headers. No token/hash is logged.
+- `POST /api/rooms/{roomId}/join` accepts `{invitationToken}` and returns 200 room
+  metadata. Every attempt, including an existing member's retry, requires a valid
+  invitation. PostgreSQL `INSERT ... ON CONFLICT DO NOTHING` makes concurrent
+  repeats idempotent and preserves the original membership timestamp. There is
+  no two-member cap.
+- `GET /api/rooms` returns `{items, page, size, hasNext}`, filtered by the caller's
+  membership and ordered by `(created_at DESC, id DESC)`. Page is zero-based;
+  default size is 20, allowed sizes are 1–100. Negative/non-numeric parameters
+  and offsets beyond Hibernate's integer range return 400. Offset pages can shift
+  when new rooms are created; this MVP does not promise a snapshot across pages.
+- `GET /api/rooms/{roomId}` checks membership before returning metadata. Missing
+  rooms, inaccessible rooms, and incorrect invitations all return the same 404
+  `ROOM_NOT_FOUND` error. Missing/invalid authentication returns 401; malformed
+  fields, UUIDs, and pagination return safe 400 errors. Create/join bodies share
+  the 4096-byte JSON limit (including chunked requests), 413/415 handling, and
+  CORS/error guarantees established in Milestone 2.
+- Database failures return 503 and have no automatic write retries. After an
+  uncertain join, retrying with the same token is safe. A lost create response
+  can leave a committed room whose invitation is unrecoverable; listing recovers
+  metadata only. Retrying create may create another room. Invitations are reusable,
+  have no expiry, and are returned only at creation; recovery/rotation remains
+  future work. Owners must retain the token securely for later sharing.
+- Room operations with an existing JWT do not use Redis or RabbitMQ. Aggregate
+  readiness still includes those dependencies; new login remains Redis-dependent.
+  This milestone adds no room editing/deletion, frontend UI, collaboration,
+  invitation management, or execution functionality.
 
 Execution POST receives source and language, derives the submitting user from
 authentication, and returns the ID, current status, and Location. Confirmed

@@ -48,6 +48,8 @@ public class SecurityConfiguration {
                                 "/actuator/health/readiness").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/rooms", "/api/rooms/{roomId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/rooms", "/api/rooms/{roomId}/join").authenticated()
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, error) -> {

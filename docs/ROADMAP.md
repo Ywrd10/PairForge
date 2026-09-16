@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 2 (DONE). Authentication acceptance checks pass.
-Milestone 3 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 3 (DONE). Room acceptance checks pass.
+Milestone 4 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -370,7 +370,7 @@ Acceptance test:
 
 ## Milestone 3 — Rooms
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -391,6 +391,89 @@ Independent accounts can join through a valid invitation; invalid tokens and
 unauthorized room reads fail. Owner membership is automatic and duplicate or
 concurrent joins do not duplicate membership. Test at least three members to
 guard against an accidental two-user cap; do not build capacity-management UI.
+
+### Implementation and verification (2026-09-15)
+
+- Added create/list/detail/join REST endpoints with validated DTOs and persisted
+  bearer identity. Room reads/lists enforce membership; missing/inaccessible rooms
+  and incorrect invitations use concealed 404 errors. Client identity fields do
+  not control ownership or membership. Existing JWT/CORS/error conventions remain.
+- Room creation and owner membership commit together. An injected membership
+  constraint failure verifies rollback of the room. Join uses PostgreSQL
+  `ON CONFLICT DO NOTHING`, requires a valid invitation on every attempt, and
+  preserves membership timestamps across repeated/concurrent joins.
+- Invitations contain 256 random bits, use Base64URL, and are stored only as
+  SHA-256 hashes. Creation alone returns the token; normal DTOs and logs disclose
+  neither token nor hash. Unit and captured-output HTTP tests verify the contract.
+  Reusable tokens, no expiry/rotation, lost-create-response recovery limits, and
+  offset-pagination behavior are documented in Architecture and README.
+- List defaults to 20 rooms, caps size at 100, and retains deterministic
+  `(created_at DESC, id DESC)` ordering. Invalid pagination/UUIDs return safe 400s;
+  create/join share the bounded JSON, chunked-body, 413/415, and CORS protections.
+  Language accepts JAVA/PYTHON strings and rejects numeric enum ordinals.
+- Root Maven `clean verify`: 160 tests pass (38 unit, 122 integration), zero
+  failures/errors/skips. New coverage includes 3 invitation unit tests and 23
+  RoomIT cases using real PostgreSQL/Redis/RabbitMQ Testcontainers. The focused
+  room/auth run also passed before the final clean build. No flakiness observed.
+- Room acceptance passes with three separately registered/logged-in accounts:
+  create, automatic owner membership, join, list/read, wrong invitation and
+  unauthorized-read rejection, repeated joins, and concurrent joins. Expired,
+  invalid, and nonexistent-user JWTs cannot access room operations. PostgreSQL
+  outage/recovery returns safe errors; existing-token room requests work while
+  Redis/RabbitMQ are paused. No automatic database write retries were introduced.
+- Frontend clean install/lint/typecheck/build pass. Credential script suites pass
+  on PowerShell 7 and Windows PowerShell 5.1. Script syntax, Actionlint, whitespace
+  checks (including new files), and local-secret scans pass.
+- Documented application startup and repeat worker provisioning pass. Live auth
+  smoke passes with BCrypt cost 12; the new room smoke passes on Windows
+  PowerShell 5.1 with three users. Full health/exposure/frontend HTTP and
+  PostgreSQL/Redis/RabbitMQ stop/start recovery smoke checks pass. These runs leave
+  four additional uniquely named smoke accounts and one room in the local database.
+- No new dependency, schema migration, worker behavior, frontend UI, Redis editor
+  document, queue processing, execution feature, or Milestone 4 work was added.
+  Existing auth tests now use a still-unimplemented route for deny-by-default
+  assertions rather than treating the new room routes as unavailable.
+- All Milestone 3 acceptance criteria pass. Changes remain local and uncommitted;
+  remote CI for them is unverified. The unchanged frontend's visual browser check
+  was not repeated; its build and HTTP delivery passed. No required check is
+  failing, skipped, or unverified. Stop before Milestone 4.
+
+### Review verification (2026-09-16)
+
+- Re-read the project guidance and reviewed all Milestone 3 acceptance criteria.
+  Three independent users can create/join/list/read a room; automatic owner
+  membership, invalid-invitation denial, unauthorized reads, and concurrent
+  duplicate joins pass. Creation rollback and membership timestamp preservation
+  remain covered. Milestone 3 stays DONE; Milestone 4 remains TODO.
+- Added blank-ID regressions for detail/join and reproduced two 500 responses.
+  Spring converts whitespace UUIDs to null and raises MissingPathVariableException;
+  the error handler now maps this client-input case to safe 400. Actual server
+  mapping failures retain 500 handling. Added a regression proving a forged
+  userId in a join body cannot grant membership to another account.
+- Final root Maven `clean verify`: 162 tests pass (38 unit, 124 integration),
+  zero failures/errors/skips, including all 25 RoomIT cases. The two initial
+  regression failures were fixed and passed in the final clean run. No flakiness
+  was observed. Required container tests were not bypassed.
+- Docker initially failed on its recurring inaccessible runtime sockets. Verified
+  Docker processes were stopped, and only the verified socket directories were
+  backed up/recreated; Engine 29.4.3 then ran the tests. Existing images and data
+  volumes were preserved. This is recovery, not a fix for Docker Desktop's
+  underlying recurring startup issue.
+- Frontend clean install/lint/typecheck/build; credential-script tests on
+  PowerShell 7 and Windows PowerShell 5.1; script syntax; Actionlint; tracked and
+  new-file whitespace checks; and local-secret scans pass.
+- Independent application startup, repeat worker provisioning, auth smoke,
+  three-user room smoke on Windows PowerShell 5.1, and full health/exposure,
+  frontend HTTP, and dependency stop/start recovery smoke checks pass. The auth
+  and room smoke runs leave four additional unique accounts and one room locally.
+- Reviewed authorization, token hashing/disclosure, database transactions,
+  concurrency, failure responses, pagination, and scope. No remaining Milestone 3
+  blocker, unnecessary abstraction, dead feature code, or architectural drift
+  was identified. No frontend feature, dependency, schema migration, worker
+  behavior, collaboration, or execution functionality was introduced.
+- Changes remain local and uncommitted; remote CI for them is unverified. The
+  unchanged frontend's visual browser check was not repeated. All required
+  Milestone 3 acceptance checks pass; no required check remains failing or skipped.
 
 ---
 

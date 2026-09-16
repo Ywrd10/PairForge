@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.bind.MissingPathVariableException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -45,6 +47,19 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     void mediaType(HttpServletResponse response) throws IOException {
         errors.write(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    void invalidParameter(HttpServletResponse response) throws IOException {
+        errors.write(response, 400, "INVALID_INPUT", "Invalid path or query parameter");
+    }
+
+    @ExceptionHandler(MissingPathVariableException.class)
+    void missingPathVariable(MissingPathVariableException error, HttpServletResponse response) throws IOException {
+        // A whitespace-only UUID converts to null; that is invalid client input.
+        // A genuinely missing template variable still indicates a server mapping bug.
+        if (error.isMissingAfterConversion()) invalidParameter(response);
+        else unexpected(error, response);
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)

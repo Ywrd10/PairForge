@@ -1,6 +1,9 @@
 spring:
   application:
     name: pairforge-backend
+  jackson:
+    deserialization:
+      fail-on-numbers-for-enums: true
   datasource:
     url: ${DATABASE_URL}
     username: ${DATABASE_USER}

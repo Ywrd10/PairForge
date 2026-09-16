@@ -182,7 +182,7 @@ class AuthIT {
         String email = email();
         register(email);
         String token = login(email);
-        for (String path : List.of("/api/rooms", "/actuator/env", "/actuator/heapdump")) {
+        for (String path : List.of("/api/not-implemented", "/actuator/env", "/actuator/heapdump")) {
             error(request("GET", path, null, "Authorization", "Bearer " + token), 403, "FORBIDDEN");
         }
         assertThat(request("GET", "/actuator/health", null).statusCode()).isEqualTo(200);
@@ -225,14 +225,14 @@ class AuthIT {
     @Test void basicAuthAndCookiesDoNotBypassBearerSecurityOrCreateSessions() throws Exception {
         error(request("GET", "/api/auth/me", null, "Authorization", "Basic dXNlcjpwYXNz", "Cookie", "JSESSIONID=madeup"),
                 401, "UNAUTHORIZED");
-        var denied = request("POST", "/api/rooms", "{}");
+        var denied = request("POST", "/api/not-implemented", "{}");
         error(denied, 401, "UNAUTHORIZED");
         assertThat(denied.headers().allValues("Set-Cookie")).isEmpty();
         String email = email();
         var registered = register(email);
         assertThat(registered.statusCode()).isEqualTo(201);
         assertThat(registered.headers().allValues("Set-Cookie")).isEmpty();
-        var authenticatedDenied = request("POST", "/api/rooms", "{}", "Authorization", "Bearer " + login(email));
+        var authenticatedDenied = request("POST", "/api/not-implemented", "{}", "Authorization", "Bearer " + login(email));
         error(authenticatedDenied, 403, "FORBIDDEN");
         assertThat(authenticatedDenied.headers().allValues("Set-Cookie")).isEmpty();
     }

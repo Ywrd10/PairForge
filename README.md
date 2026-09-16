@@ -2,15 +2,15 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 2 authentication** on the persistence foundation: registration,
-login, JWT-protected identity, and Redis-backed authentication limits. The React
-page and worker remain foundations; room APIs and code execution are not enabled.
+contains **Milestone 3 room management** on the authentication/persistence
+foundation: create rooms, share invitations, join, and retrieve authorized rooms.
+The React page and worker remain foundations; code execution is not enabled.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Modular-monolith API; authentication, health, migrations, domain repositories |
+| `backend/` | Modular-monolith API; authentication, rooms, health, migrations, domain repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
 | `frontend/` | React + TypeScript + Vite foundation page |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
@@ -21,7 +21,7 @@ page and worker remain foundations; room APIs and code execution are not enabled
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. Room APIs, WebSockets, queue producers/consumers, and execution
+references. WebSockets, queue producers/consumers, and execution
 paths remain for later milestones. No Docker socket is mounted into an application.
 
 The browser loads Vite's HTML and React assets and renders the static foundation
@@ -163,8 +163,9 @@ Unit tests cover email normalization, length boundaries, and locale independence
 Authentication tests exercise real HTTP registration/login, hashing, validation,
 JWT and CORS failures, Redis limit concurrency/expiry, dependency failure/recovery,
 and stateless access. Tests use BCrypt cost 4; runtime defaults to 12.
-Room-owner membership and execution state transitions are
-future service-layer transactions, not behavior supplied by repositories.
+Room tests cover three-user admission, automatic owner membership, concurrent
+joins, rollback, authorization, bounded input/pagination, secret disclosure, and
+dependency failure/recovery. Execution state transitions remain future work.
 
 ```powershell
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
@@ -188,6 +189,7 @@ With all applications running, validate the local environment:
 .\scripts\smoke.ps1
 .\scripts\smoke.ps1 -CheckOutages
 .\scripts\smoke-auth.ps1
+.\scripts\smoke-rooms.ps1
 ```
 
 `-CheckOutages` deliberately stops each **PairForge Compose** dependency and
@@ -200,6 +202,37 @@ also inspect the page in a browser for rendering and runtime errors.
 unauthenticated denial without printing passwords or tokens. It leaves one
 uniquely named smoke account in the local database and consumes a registration
 attempt. Repeated runs are subject to the configured authentication limits.
+
+`smoke-rooms.ps1` registers/logs in three accounts, creates a room, checks denied
+access, and verifies owner access, invitations, repeat joins, lists, and reads.
+It leaves three uniquely named accounts and one room, consumes three registration
+attempts, and prints no passwords, JWTs, or invitation tokens. Both smoke scripts
+are subject to the default five-registrations-per-IP/hour limit; a 429 requires
+waiting for the window, not bypassing the admission controls.
+
+## Room API
+
+All requests require `Authorization: Bearer <token>`.
+
+| Request | Success |
+| --- | --- |
+| `POST /api/rooms` with `{name, language}` | 201 `{room, invitationToken}` and Location |
+| `GET /api/rooms?page=0&size=20` | 200 `{items, page, size, hasNext}`, caller's rooms only |
+| `GET /api/rooms/{roomId}` | 200 room metadata, membership required |
+| `POST /api/rooms/{roomId}/join` with `{invitationToken}` | 200 room metadata, including repeated joins |
+
+Names are nonblank and at most 120 Java UTF-16 code units; language is `JAVA` or
+`PYTHON`. Room metadata includes id, ownerId, name, language, createdAt, updatedAt.
+List sizes are 1–100, ordered newest first with ID as a tie-breaker. Create/join
+require JSON bodies of at most 4096 bytes. Missing/inaccessible rooms or incorrect
+invitations return concealed 404 errors; malformed input returns 400.
+
+The owner is added in the creation transaction. Tokens are 256-bit random secrets,
+hashed in PostgreSQL, returned only at creation, and required on every join. They
+are reusable, with no expiry or rotation yet. Retain the token securely: a lost
+creation response cannot recover it, and retrying create may create another room.
+Concurrent repeated joins safely preserve one membership. Room requests use only
+PostgreSQL after JWT validation; they create no Redis documents or queue messages.
 
 ## Authentication API
 
@@ -256,6 +289,39 @@ Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
 ## Shutdown and troubleshooting
+
+### Milestone 3 review verification (2026-09-16)
+
+Final root Maven `clean verify` passes 162 tests (38 unit, 124 integration), with
+zero failures/errors/skips and no observed flakiness. Review regressions found
+blank room IDs returning 500 on detail/join; those now return safe 400 errors.
+A new test verifies that a join body's forged userId cannot assign membership
+to another account. All 25 room integration cases and prior suites pass.
+
+Frontend build checks, credential scripts on PowerShell 7/5.1, script/workflow
+syntax, whitespace/secret checks, live auth/three-user room smoke, and full
+dependency outage/recovery smoke pass. Docker required socket-only recovery;
+images and data volumes were preserved. Four additional smoke accounts and one
+room remain locally. Remote CI is unverified for these uncommitted changes;
+the unchanged frontend's visual check was not repeated. Milestone 3 stays DONE,
+with no Milestone 4 work introduced.
+
+### Milestone 3 verification (2026-09-15)
+
+Root Maven `clean verify` passes 160 tests (38 unit, 122 integration), with zero
+failures/errors/skips. The 23 real HTTP room cases verify three-user admission,
+atomic owner membership/rollback, concurrent idempotent joins, membership-filtered
+reads, invitation secrecy, validation/CORS, JWT denial, and dependency failures.
+Room operations require PostgreSQL only after authentication; Redis/RabbitMQ
+outages do not bypass membership checks or prevent these requests from completing.
+
+Frontend install/lint/typecheck/build, credential scripts on PowerShell 7/5.1,
+script/workflow syntax, whitespace/secret checks, live auth/room smoke, and full
+infrastructure outage/recovery smoke pass. Room smoke ran on Windows PowerShell
+5.1 and leaves three accounts/one room; auth smoke leaves one additional account.
+No required test was skipped and no flakiness was observed. Remote CI for these
+uncommitted changes is unverified; the unchanged frontend visual check was not
+repeated. Milestone 3 is DONE; Milestone 4 has not begun.
 
 ### Milestone 2 verification (2026-09-15)
 
@@ -380,5 +446,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 3. The planned execution architecture retains the documented
+Milestone 4. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.
