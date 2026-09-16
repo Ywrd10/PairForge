@@ -2,9 +2,10 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains the **Milestone 4 browser application** on the authentication and room
+contains the **Milestone 5 Monaco room** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
-authorized room overviews. The worker remains a foundation; code execution is not enabled.
+authorized rooms with a Java/Python editor. Drafts are temporary and local to the
+page. The worker remains a foundation; code execution is not enabled.
 
 ## Structure
 
@@ -12,7 +13,7 @@ authorized room overviews. The worker remains a foundation; code execution is no
 | --- | --- |
 | `backend/` | Modular-monolith API; authentication, rooms, health, migrations, domain repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
-| `frontend/` | React + TypeScript + Vite browser authentication and room workflows |
+| `frontend/` | React + TypeScript + Vite authentication, room workflows, and local Monaco editing |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
 | `scripts/` | Windows development/environment and smoke-check commands |
 | `.github/workflows/ci.yml` | Backend/worker integration tests and frontend checks |
@@ -112,8 +113,21 @@ Then use three separate terminals, each at the repository root:
 Each command stays attached to its application. Open
 [the frontend](http://127.0.0.1:5173). Create an account, log in, create a room,
 save its invitation, and choose **Open room**. A second account can join from the
-dashboard using the room ID and invitation token. The overview displays room
-metadata; the editor comes in Milestone 5.
+dashboard using the room ID and invitation token. The room displays metadata and
+Monaco with a Java or Python starter. Switching the editor language preserves
+source and undo history; it does not change the room's saved default. Refreshing
+metadata preserves edits, but leaving the room, reloading, logout, and session
+expiry discard the draft. No source is saved or shared. Run stays disabled, with
+empty stdout/stderr panels and an explicit local-only connection status.
+
+Monaco and its browser worker are bundled locally, with no CDN or language server.
+Both syntax definitions load with the lazy editor module; language switching
+does not depend on another script download.
+The worker supports editor features and never executes submissions. If editor
+loading fails, retry; a cached asset failure can require a page reload and a new
+login. Monaco's lazy chunk currently exceeds Vite's 500 kB advisory threshold
+(about 2.85 MB minified / 730 kB gzip); login/dashboard do not load that chunk.
+Monaco 0.56.0 pins DOMPurify 3.4.8, so a scoped override pins patched 3.4.15.
 
 The frontend launcher derives its public API URL from `API_PORT` (default 8080).
 To override it, set `VITE_API_BASE_URL` in the process environment, or use a
@@ -306,7 +320,7 @@ the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
 Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
-## Browser tests (Milestone 4)
+## Browser tests (Milestones 4–5)
 
 Build the backend jar first with the root Maven verification command. Then:
 
@@ -324,7 +338,9 @@ Pop-Location
 
 Browser tests require Docker and JDK 21; they never skip missing infrastructure.
 They launch fresh PostgreSQL/Redis/RabbitMQ containers with generated credentials,
-an API on port 18080, and Vite on 15173. Both application ports must be free. The
+an API on port 18080, and a Vite production preview on 15173. The harness rebuilds
+the frontend with that test API URL, verifying emitted Monaco worker assets as
+well as UI behavior. Both application ports must be free. The
 test API explicitly uses BCrypt cost 4 and higher IP admission budgets; normal
 application defaults remain unchanged. Test users/rooms live only in the temporary
 database. Normal teardown stops the API and removes these containers and their
@@ -333,12 +349,27 @@ volumes. Forced termination may require removing the specific
 
 Tests cover the real register/login/create/open and invitation admission flows;
 browser-intercepted failures separately cover unavailable requests and expired
-authentication. Vitest covers request handling, stale responses, forms, and
-pagination. GitHub Actions runs the same checks. Browser traces/videos/screenshots
+authentication. Editor checks cover real typing, undo/redo, language changes,
+worker completion responses, refresh preservation, draft disposal, asset failure
+and recovery, and mobile layout. Editing makes no API writes or WebSocket
+connections. Vitest covers request handling, stale responses, forms, pagination,
+and editor initialization/cleanup. GitHub Actions runs the same checks. Browser traces/videos/screenshots
 are disabled because they can contain credentials or invitations. Local Playwright
 failure artifacts are ignored by Git and are not uploaded by CI.
 
 ## Shutdown and troubleshooting
+
+### Milestone 5 review verification (2026-09-16)
+
+Milestone 5 remains DONE. The review fixed uncaught highlighting-download failures
+by including both language definitions in the lazy editor module. A new browser
+regression blocks later script downloads and verifies Python highlighting still
+works. All 162 Java tests, 36 frontend tests, and six production-browser tests pass,
+as do clean install, lint, typecheck, build, dependency audit (zero vulnerabilities),
+credential checks, Actionlint, and whitespace checks. Docker required its known
+socket-only recovery; images and volumes were preserved. The documented Monaco
+bundle-size advisory remains. These changes are uncommitted, remote CI is
+unverified, and Milestone 6 has not begun. See the roadmap for review details.
 
 ### Milestone 4 review verification (2026-09-16)
 
@@ -528,5 +559,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 4. The planned execution architecture retains the documented
+Milestone 6. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

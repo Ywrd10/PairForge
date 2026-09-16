@@ -5,9 +5,13 @@ import { MemoryRouter } from 'react-router'
 import App from './App'
 import { AuthProvider } from './auth/AuthProvider'
 
+// Monaco needs a real browser. Keep page/session behavior independent of its DOM.
+vi.mock('./editor/CodeEditor', () => ({ CodeEditor: ({ initialSource }: { initialSource: string }) =>
+  <textarea aria-label="Source code" defaultValue={initialSource} /> }))
+
 const room = { id: '11111111-1111-1111-1111-111111111111', ownerId: 'user-1', name: 'Practice room',
   language: 'JAVA', createdAt: '2026-09-16T12:00:00Z', updatedAt: '2026-09-16T12:00:00Z' }
-let fetch: ReturnType<typeof vi.fn>
+let fetch: ReturnType<typeof vi.fn<(url: string, options?: RequestInit) => Promise<Response>>>
 beforeEach(() => {
   fetch = vi.fn(async (url: string) => {
     if (url.endsWith('/auth/login')) return Response.json({ accessToken: 'test-token', tokenType: 'Bearer',
@@ -52,7 +56,7 @@ it('registers then requires a separate login and clears the password', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
   expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Account created. Log in to continue.')
   expect(screen.getByLabelText('Password')).toHaveProperty('value', '')
-  expect(JSON.parse(fetch.mock.calls[0][1].body).password).toBe(password)
+  expect(JSON.parse(fetch.mock.calls[0][1]?.body as string).password).toBe(password)
   expect(fetch).toHaveBeenCalledTimes(1)
 })
 it('shows field errors and Retry-After without logging the user in', async () => {
@@ -150,4 +154,55 @@ it('enforces expiry when focus returns to a suspended tab', async () => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 901_000)
   fireEvent.focus(window)
   expect(await screen.findByText('Your session expired. Please log in again.')).toBeTruthy()
+})
+
+it('preserves the draft and selected language through successful and failed metadata refreshes', async () => {
+  open(`/rooms/${room.id}`)
+  await login()
+  const source = await screen.findByLabelText('Source code')
+  expect(source).toHaveProperty('value', expect.stringContaining('public class Main'))
+  fireEvent.change(source, { target: { value: 'my unsaved source' } })
+  fireEvent.change(screen.getByLabelText('Editor language'), { target: { value: 'PYTHON' } })
+  expect(screen.getByRole('heading', { name: 'main.py' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('region', { name: 'Connection status' }).textContent).toContain('Local editing only')
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('Execution is not available')
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh room' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh room' })).toHaveProperty('disabled', false))
+  expect(screen.getByLabelText('Source code')).toBe(source)
+  expect(source).toHaveProperty('value', 'my unsaved source')
+  expect(screen.getByLabelText('Editor language')).toHaveProperty('value', 'PYTHON')
+  fetch.mockResolvedValueOnce(Response.json({ message: 'Service unavailable' }, { status: 503 }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh room' }))
+  await screen.findByRole('alert')
+  expect(source).toHaveProperty('value', 'my unsaved source')
+  fetch.mockResolvedValueOnce(Response.json({ message: 'Room is unavailable' }, { status: 403 }))
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh room' }))
+  await waitFor(() => expect(screen.queryByLabelText('Source code')).toBeNull())
+})
+
+it('never mounts an editor for a denied room', async () => {
+  const normal = fetch.getMockImplementation()!
+  fetch.mockImplementation((url: string) => url.endsWith(`/rooms/${room.id}`)
+    ? Promise.resolve(Response.json({ message: 'Room is unavailable' }, { status: 404 })) : normal(url))
+  open(`/rooms/${room.id}`)
+  await login()
+  await screen.findByRole('alert')
+  expect(screen.queryByLabelText('Source code')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Run' })).toBeNull()
+})
+
+it('initializes Python from room metadata and removes its draft on logout', async () => {
+  const normal = fetch.getMockImplementation()!
+  fetch.mockImplementation((url: string) => url.endsWith(`/rooms/${room.id}`)
+    ? Promise.resolve(Response.json({ ...room, language: 'PYTHON' })) : normal(url))
+  open(`/rooms/${room.id}`)
+  await login()
+  const source = await screen.findByLabelText('Source code')
+  expect(source).toHaveProperty('value', 'print("Hello, PairForge!")\n')
+  expect(screen.getByLabelText('Editor language')).toHaveProperty('value', 'PYTHON')
+  fireEvent.change(source, { target: { value: 'private draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
+  expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
+  expect(screen.queryByLabelText('Source code')).toBeNull()
 })

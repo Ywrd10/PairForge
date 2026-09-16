@@ -45,4 +45,14 @@ small { color: #b8ccc7; }
 dt { color: #b8ccc7; margin-top: 1rem; }
 dd { margin: .2rem 0; overflow-wrap: anywhere; }
 footer { padding: 1.5rem; text-align: center; color: #9bb2ad; font-size: .85rem; }
+.editor-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.editor-toolbar > div { margin-right: auto; }
+.editor-toolbar h2 { margin-bottom: .2rem; }
+.editor-toolbar label { margin-top: 0; }
+.editor-toolbar span { color: #b8ccc7; font-size: .85rem; }
+.editor-host { height: 420px; height: clamp(280px, 55vh, 600px); width: 100%; }
+.code-editor { min-width: 0; border: 1px solid #567069; }
+.output-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.output-columns pre { color: #b8ccc7; background: #101c20; padding: 1rem; min-height: 6rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .output-columns { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .columns { grid-template-columns: 1fr; gap: 0; } .account-email { display: none; } main { margin-top: 2rem; } .panel { padding: 1rem; } }

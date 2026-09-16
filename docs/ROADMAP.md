@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 3 (DONE). Room acceptance checks pass.
-Milestone 4 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 5 (DONE). Monaco room acceptance checks pass.
+Milestone 6 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -582,7 +582,7 @@ browser.
 
 ## Milestone 5 — Monaco Room
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -598,6 +598,80 @@ Execution may still be disabled at this point.
 Acceptance test: an authorized user opens Monaco, switches Java/Python, and sees
 the output and connection-state panels. Run remains disabled until the actual
 execution path is available; no fake success or host-process runner is used.
+
+### Implementation and verification (2026-09-16)
+
+- Authorized room metadata now mounts a lazy-loaded Monaco editor with Java/Python
+  highlighting, locally bundled worker assets, and `Main.java`/`main.py` labels.
+  Room defaults select the initial starter; switching language preserves the one
+  draft and undo history. It does not persist a new room default.
+- Drafts exist only in memory. Refreshing metadata preserves them, including on
+  transient API errors; leaving/reloading/logout/expiry discards them. Initial
+  access denial never mounts an editor; a later authorization/not-found response
+  removes it. Loading and initialization errors show retry/reload guidance, and
+  cleanup disposes the editor/model/listener without mounting late loads.
+- Run is disabled, stdout/stderr show empty states, and the connection panel
+  reports local editing only. No backend, schema, worker-process, execution,
+  WebSocket, or Redis document behavior was added. Milestone 6 remains untouched.
+- Root Maven `clean verify`: 162 tests pass (38 unit, 124 integration), zero
+  failures/errors/skips, using real PostgreSQL/Redis/RabbitMQ Testcontainers.
+- Frontend clean install, lint, typecheck, all 36 unit/component tests, and
+  production build pass. Five real-browser tests pass against the production
+  preview and isolated API/dependencies, with retries disabled and no skips.
+  They verify typing, undo/redo across language switching, Python highlighting,
+  same-origin worker completion responses, metadata refresh preservation,
+  authorization, expiry/logout/reload/navigation, mobile resizing, and asset
+  failure/recovery. Editing creates no API writes or WebSocket connections.
+- Desktop/mobile visual inspection passes. Workflow Actionlint and whitespace
+  checks pass; generated files and secrets remain ignored. Browser fixture API,
+  containers, and temporary volumes are cleaned up after tests.
+- Pinned Monaco 0.56.0 with a scoped DOMPurify 3.4.15 override to replace its
+  vulnerable 3.4.8 pin. Full `npm audit` reports zero vulnerabilities. Vite retains
+  its advisory for the approximately 2.84 MB minified / 728 kB gzip lazy Monaco
+  chunk; it is not loaded on login/dashboard. This warning is documented.
+- Initial development checks found overlapping StrictMode lazy imports, test
+  typing issues, and browser assertions that assumed a single undo group and
+  platform-independent completion roles. These were corrected; the final suites
+  pass without observed flakiness. No required local check remains failing,
+  skipped, or unverified. Remote GitHub Actions has not run for these uncommitted
+  changes; prior milestone CI is not evidence for this milestone.
+- README, Project Spec, and Architecture document the temporary-draft contract,
+  worker loading, build warning, test workflow, and explicit feature boundaries.
+  All Milestone 5 acceptance criteria pass. Stop before Milestone 6.
+
+### Review verification (2026-09-16)
+
+- Re-read the four project guidance documents and reviewed every Milestone 5
+  deliverable. Authorized room access, Monaco editing, Java/Python switching,
+  disabled Run, empty stdout/stderr, and explicit local connection status all pass.
+  Milestone 5 remains DONE; Milestone 6 remains TODO.
+- Reproduced one error-handling gap: Monaco's separate Python definition download
+  could fail after the editor opened, leaving highlighting unavailable and raising
+  uncaught browser errors. Both small definitions now load in the lazy editor
+  module, under its existing load/error boundary. Added narrow declarations using
+  Monaco's public types and a real-browser regression that switches/highlights
+  after later script downloads are blocked. No new dependency or service was added.
+- Final Maven `clean verify` passes all 162 tests (38 unit, 124 integration), with
+  zero failures/errors/skips. The initial attempt failed because Docker was down;
+  startup then reproduced both known stale runtime sockets. With Docker stopped,
+  only verified socket directories were backed up/recreated. Engine 29.4.3 now
+  runs, and images/volumes/settings were preserved. This recovers the environment;
+  it does not fix Docker Desktop's underlying recurring socket problem.
+- Clean frontend installation, lint, typecheck, all 36 unit/component tests,
+  production build, and all six production-browser tests pass. Browser retries
+  remain disabled; no flakiness was observed. The full dependency audit reports
+  zero vulnerabilities. Credential-isolation script checks, Actionlint, and
+  tracked/new-file whitespace checks pass. Temporary browser services are removed.
+- Reviewed source handling, authorization, session expiry, editor/model/listener
+  disposal, cancelled loads, draft lifecycle, and dependency pinning. No remaining
+  milestone blocker, unnecessary abstraction, dead feature code, or architectural
+  drift was identified. Backend/schema/worker code is unchanged; no execution,
+  WebSocket, Redis document, or future-milestone feature was introduced.
+- The approximately 2.85 MB minified / 730 kB gzip lazy Monaco chunk still raises
+  Vite's advisory size warning. Required local acceptance checks are all verified;
+  remote GitHub Actions remains unverified because changes are uncommitted and
+  unpushed. The unchanged full development-stack smoke scripts were not repeated;
+  real dependency failure tests and the isolated browser workflows ran instead.
 
 ---
 

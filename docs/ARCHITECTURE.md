@@ -399,8 +399,8 @@ no schema migration or API/worker module coupling is added for authentication.
 ### Milestone 4 browser contract
 
 - The Vite React SPA uses React Router declarative routes for `/login`, `/register`,
-  `/dashboard`, and `/rooms/:roomId`. Room routes display authorized metadata only;
-  Monaco and all collaboration/execution controls remain later milestones.
+  `/dashboard`, and `/rooms/:roomId`. Milestone 4 introduced authorized room
+  metadata; Milestone 5 extends that route with the local editor described below.
 - A small session object holds the JWT privately in memory and exposes user/expiry
   state through a React provider. Login confirms identity with `/api/auth/me`.
   Registration does not log in automatically. Logout/reload removes browser state,
@@ -431,6 +431,34 @@ no schema migration or API/worker module coupling is added for authentication.
   three infrastructure dependencies. Test-only cost/rate configuration does not
   change production defaults. CI retains the independent full Java integration
   suite and adds frontend unit and browser checks.
+
+### Milestone 5 local editor contract
+
+- Successful authorized room metadata loads mount one Monaco editor/model. An
+  initial denial never mounts it; logout, expiry, navigation, or a subsequent
+  authorization/not-found response disposes it. Transient metadata refresh
+  failures show an error while preserving the existing temporary draft.
+- The room's persisted default language selects the initial Java/Python starter.
+  A selector changes highlighting and the displayed `Main.java`/`main.py` label,
+  preserving source and undo history. It does not update room metadata or keep
+  separate per-language drafts. Successful metadata refreshes also preserve edits.
+- Source stays in the mounted editor and an in-memory lifecycle ref only. Leaving
+  the room, reloading, logout, and session expiry discard it explicitly. No source
+  is sent to an API, stored in browser persistence, or synchronized through Redis.
+- Monaco is loaded lazily with both Java/Python syntax definitions in that same
+  module, so switching languages needs no additional script download. The
+  definitions use Monaco's public tokenizer/configuration types. A Vite-bundled,
+  same-origin editor worker provides editor features only; it does
+  not execute or compile submissions. There is no CDN or language server. The
+  editor, model, and change listener are disposed together. Late module loading
+  cannot mount an editor after navigation. Loading/initialization errors have a
+  retry control; cached module failures may require reloading and logging in again.
+- Run is disabled, stdout/stderr contain empty-state text, and connection status
+  says local editing only. No simulated execution state or WebSocket is created.
+- Playwright serves a production build and checks actual editing, undo/redo,
+  language switching, same-origin worker responses, local draft lifecycle,
+  authorization, dependency/asset failures, and responsive layout. Unit tests
+  cover model lifecycle, StrictMode, late loads, and metadata-refresh behavior.
 
 ### Later WebSocket authentication
 

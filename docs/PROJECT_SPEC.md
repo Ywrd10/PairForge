@@ -122,6 +122,12 @@ The room interface should contain:
 - stdout/stderr display;
 - connection status.
 
+Milestone 5 provides a temporary local draft initialized from the room's default
+language. Switching Java/Python preserves the source; leaving the room, reload,
+logout, or session expiry discards it. The UI explains this limitation. Run stays
+disabled, output remains empty, and connection status indicates local editing
+until the relevant later milestones introduce collaboration and execution.
+
 ---
 
 ### Asynchronous Code Execution
