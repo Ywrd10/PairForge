@@ -37,7 +37,7 @@ function RoomDetails({ id }: { id: string }) {
         <dt>Default language</dt><dd>{room.language === 'JAVA' ? 'Java' : 'Python'}</dd>
         <dt>Created</dt><dd>{new Date(room.createdAt).toLocaleString()}</dd></dl>
     </section>}
-    {room && <RoomWorkspace defaultLanguage={room.language} />}
+    {room && <RoomWorkspace roomId={room.id} defaultLanguage={room.language} />}
   </>
 }
 

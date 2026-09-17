@@ -44,6 +44,8 @@ public class SecurityConfiguration {
                 // Revisit CSRF before introducing cookie, session, or Basic authentication.
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
+                        // The upgrade carries no browser credentials. STOMP CONNECT authenticates it.
+                        .requestMatchers(HttpMethod.GET, "/ws").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",
                                 "/actuator/health/readiness").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()

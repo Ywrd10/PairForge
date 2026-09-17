@@ -6,8 +6,21 @@ import App from './App'
 import { AuthProvider } from './auth/AuthProvider'
 
 // Monaco needs a real browser. Keep page/session behavior independent of its DOM.
-vi.mock('./editor/CodeEditor', () => ({ CodeEditor: ({ initialSource }: { initialSource: string }) =>
-  <textarea aria-label="Source code" defaultValue={initialSource} /> }))
+vi.mock('./editor/CodeEditor', () => ({ CodeEditor: ({ content, onChange }: { content: string; onChange: (source: string) => void }) =>
+  <textarea aria-label="Source code" value={content} onChange={event => onChange(event.target.value)} /> }))
+// Page tests isolate routing/metadata. The real collaboration state machine has its own tests.
+vi.mock('./collaboration/client', () => ({ CollaborationClient: class {
+  listeners = new Set<() => void>()
+  state: { content: string; language: string; ready: boolean; connected: boolean; pending: boolean; notice: string }
+  constructor(_session: unknown, _room: string, content: string, language: string) {
+    this.state = { content, language, ready: true, connected: true, pending: false, notice: 'Connected — synchronized in Redis.' }
+  }
+  getSnapshot = () => this.state
+  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
+  start() {}
+  stop() {}
+  edit(content: string, language: string) { this.state = { ...this.state, content, language }; this.listeners.forEach(listener => listener()) }
+} }))
 
 const room = { id: '11111111-1111-1111-1111-111111111111', ownerId: 'user-1', name: 'Practice room',
   language: 'JAVA', createdAt: '2026-09-16T12:00:00Z', updatedAt: '2026-09-16T12:00:00Z' }
@@ -165,7 +178,7 @@ it('preserves the draft and selected language through successful and failed meta
   fireEvent.change(screen.getByLabelText('Editor language'), { target: { value: 'PYTHON' } })
   expect(screen.getByRole('heading', { name: 'main.py' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', true)
-  expect(screen.getByRole('region', { name: 'Connection status' }).textContent).toContain('Local editing only')
+  expect(screen.getByRole('region', { name: 'Connection status' }).textContent).toContain('Connected')
   expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('Execution is not available')
   fireEvent.click(screen.getByRole('button', { name: 'Refresh room' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh room' })).toHaveProperty('disabled', false))

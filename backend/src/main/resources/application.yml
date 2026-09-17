@@ -75,6 +75,9 @@ pairforge:
 logging:
   level:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
+    # Parser errors may include raw STOMP frames (tokens/source). Our handler logs
+    # only the failure class and returns a constant protocol error.
+    org.springframework.web.socket.messaging.StompSubProtocolHandler: "OFF"
 
 management:
   endpoints:

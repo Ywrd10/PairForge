@@ -7,10 +7,12 @@ import type { EditorLanguage } from './monaco'
 
 vi.mock('./monaco', () => ({ createCodeEditor: vi.fn() }))
 const create = vi.mocked(createCodeEditor)
-let handle: { setLanguage: ReturnType<typeof vi.fn<(language: EditorLanguage) => void>>; dispose: ReturnType<typeof vi.fn<() => void>> }
+let handle: { setLanguage: ReturnType<typeof vi.fn<(language: EditorLanguage) => void>>;
+  setContent: ReturnType<typeof vi.fn<(content: string) => void>>;
+  setReadOnly: ReturnType<typeof vi.fn<(readOnly: boolean) => void>>; dispose: ReturnType<typeof vi.fn<() => void>> }
 beforeEach(() => {
   create.mockReset()
-  handle = { setLanguage: vi.fn(), dispose: vi.fn() }
+  handle = { setLanguage: vi.fn(), setContent: vi.fn(), setReadOnly: vi.fn(), dispose: vi.fn() }
   create.mockReturnValue(handle)
 })
 

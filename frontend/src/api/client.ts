@@ -26,6 +26,11 @@ export function expectResponse<T>(value: unknown, matches: (value: unknown) => v
 }
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080').replace(/\/$/, '')
+export function collaborationUrl() {
+  const url = new URL(`${baseUrl}/ws`)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
 
 // A fixed configured API origin receives credentials, never a navigation URL.
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {

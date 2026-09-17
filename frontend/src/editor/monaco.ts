@@ -10,6 +10,8 @@ import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 export type EditorLanguage = 'JAVA' | 'PYTHON'
 export interface EditorHandle {
   setLanguage(language: EditorLanguage): void
+  setContent(content: string): void
+  setReadOnly(readOnly: boolean): void
   dispose(): void
 }
 
@@ -34,9 +36,22 @@ export function createCodeEditor(host: HTMLElement, source: string, language: Ed
       wordWrap: 'on', tabSize: 4, padding: { top: 12, bottom: 12 },
       wordBasedSuggestions: 'currentDocument',
     })
-    const listener = model.onDidChangeContent(() => onChange(model.getValue()))
+    let applyingRemote = false
+    const listener = model.onDidChangeContent(() => { if (!applyingRemote) onChange(model.getValue()) })
     return {
       setLanguage: next => editor.setModelLanguage(model, next.toLowerCase()),
+      setReadOnly: readOnly => instance.updateOptions({ readOnly }),
+      setContent: content => {
+        if (model.getValue() === content) return
+        applyingRemote = true
+        try {
+          // Remote full replacements deliberately clear local undo history: undo
+          // must not resurrect another participant's superseded document.
+          const position = instance.getPosition()
+          model.setValue(content)
+          if (position) instance.setPosition(position)
+        } finally { applyingRemote = false }
+      },
       dispose: () => { listener.dispose(); instance.dispose(); model.dispose() },
     }
   } catch (error) {

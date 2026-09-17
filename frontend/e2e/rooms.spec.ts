@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { test, expect } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Page, WebSocketRoute } from '@playwright/test'
 
 async function registerAndLogin(page: Page) {
   const email = `browser-${randomBytes(8).toString('hex')}@example.test`
@@ -16,6 +16,31 @@ async function registerAndLogin(page: Page) {
   await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible()
   return { email, password }
 }
+
+test('a lost collaboration connection keeps a visible local draft without replay', async ({ page }) => {
+  let connection: WebSocketRoute | undefined
+  let connections = 0
+  await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => {
+    connections++; connection = socket; socket.connectToServer()
+  })
+  await registerAndLogin(page)
+  await page.getByLabel('Room name', { exact: true }).fill('Disconnected editing')
+  await page.getByRole('button', { name: 'Create room', exact: true }).click()
+  await page.getByRole('link', { name: 'Open room', exact: true }).click()
+  const status = page.getByRole('region', { name: 'Connection status', exact: true })
+  await expect(status).toContainText('Connected')
+  const source = page.getByRole('textbox', { name: 'Source code', exact: true })
+  await expect(source).toBeVisible()
+  await connection!.close({ code: 1011, reason: 'Test connection loss' })
+  await expect(status).toContainText('Disconnected')
+  await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('local copy after disconnect')
+  await expect(page.locator('.monaco-editor .view-lines')).toContainText('local copy after disconnect')
+  await expect(status).toContainText('not synchronized')
+  await page.getByRole('button', { name: 'Refresh room', exact: true }).click()
+  await expect(page.locator('.monaco-editor .view-lines')).toContainText('local copy after disconnect')
+  await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled()
+  expect(connections).toBe(1)
+})
 
 test('real browser registration, creation, invitation admission, navigation and memory-only sessions', async ({ page, browser }) => {
   const errors: string[] = []
@@ -115,7 +140,7 @@ test('maximum-length room names remain readable on mobile', async ({ page }) => 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('production Monaco edits one temporary draft, preserves undo and loads a local worker', async ({ page }) => {
+test('production Monaco shares a document, preserves local undo and loads a local worker', async ({ page }) => {
   const errors: string[] = []
   const workers: string[] = []
   const writes: string[] = []
@@ -130,6 +155,7 @@ test('production Monaco edits one temporary draft, preserves undo and loads a lo
   const source = page.getByRole('textbox', { name: 'Source code', exact: true })
   const lines = page.locator('.monaco-editor .view-lines')
   await expect(source).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Connection status', exact: true })).toContainText('Connected')
   await expect(lines).toContainText('public class Main')
   page.on('request', request => {
     if (request.url().includes('/api/') && request.method() !== 'GET' && request.method() !== 'OPTIONS') writes.push(request.method())
@@ -172,28 +198,29 @@ test('production Monaco edits one temporary draft, preserves undo and loads a lo
   await expect(page.getByRole('region', { name: 'Output', exact: true })).toContainText('Execution is not available')
   await expect(page.getByRole('region', { name: 'stdout', exact: true })).toContainText('No output yet.')
   await expect(page.getByRole('region', { name: 'stderr', exact: true })).toContainText('No errors yet.')
-  await expect(page.getByRole('region', { name: 'Connection status', exact: true })).toContainText('Local editing only')
+  await expect(page.getByRole('region', { name: 'Connection status', exact: true })).toContainText('Connected')
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(source).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
   expect(writes).toEqual([])
-  expect(sockets).toEqual([])
+  expect(sockets).toEqual(['ws://127.0.0.1:18080/ws'])
   expect(workers.every(url => new URL(url).origin === 'http://127.0.0.1:15173')).toBe(true)
 
   await page.getByRole('link', { name: 'Back to dashboard' }).click()
   await expect(source).toHaveCount(0)
   await page.getByRole('link', { name: 'Monaco acceptance room', exact: true }).click()
-  await expect(lines).toContainText('public class Main')
-  await expect(page.getByLabel('Editor language')).toHaveValue('JAVA')
+  await expect(lines).toContainText('pairforgeDraft = 42')
+  await expect(page.getByLabel('Editor language')).toHaveValue('PYTHON')
   await source.focus()
   await page.keyboard.press('Control+a')
-  await page.keyboard.insertText('discard on reload')
+  await page.keyboard.insertText('shared across reload')
+  await expect(page.getByRole('region', { name: 'Connection status', exact: true })).toContainText('synchronized in Redis')
   await page.reload()
   await page.getByLabel('Email', { exact: true }).fill(account.email)
   await page.getByLabel('Password', { exact: true }).fill(account.password)
   await page.getByRole('button', { name: 'Log in', exact: true }).click()
-  await expect(lines).toContainText('public class Main')
+  await expect(lines).toContainText('shared across reload')
   await page.getByRole('button', { name: 'Log out', exact: true }).click()
   await expect(source).toHaveCount(0)
   expect(errors).toEqual([])
@@ -229,6 +256,7 @@ test('language switching still highlights when later script downloads are unavai
   await page.getByRole('link', { name: 'Open room', exact: true }).click()
   const source = page.getByRole('textbox', { name: 'Source code', exact: true })
   await expect(source).toBeVisible()
+  await expect(page.getByLabel('Editor language')).toBeEnabled()
   await page.route('**/*.js', route => route.abort('failed'))
   await page.getByLabel('Editor language').selectOption('PYTHON')
   await source.focus()
@@ -237,4 +265,40 @@ test('language switching still highlights when later script downloads are unavai
   await expect.poll(() => page.locator('.monaco-editor .view-lines span').evaluateAll(elements =>
     new Set(elements.filter(element => element.textContent?.trim()).map(element => getComputedStyle(element).color)).size)).toBeGreaterThan(1)
   expect(errors).toEqual([])
+})
+
+test('two authorized accounts exchange edits and language changes without execution', async ({ page, browser }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await registerAndLogin(page)
+  await page.getByLabel('Room name', { exact: true }).fill('Shared acceptance room')
+  await page.getByRole('button', { name: 'Create room', exact: true }).click()
+  const id = await page.getByLabel('Room ID', { exact: true }).inputValue()
+  const invitation = await page.getByLabel('Invitation token', { exact: true }).inputValue()
+  await page.getByRole('link', { name: 'Open room', exact: true }).click()
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:15173' })
+  try {
+    const guest = await context.newPage()
+    guest.on('pageerror', error => errors.push(error.message))
+    await registerAndLogin(guest)
+    await guest.getByLabel('Room ID to join').fill(id)
+    await guest.getByLabel('Invitation token to join').fill(invitation)
+    await guest.getByRole('button', { name: 'Join room', exact: true }).click()
+    for (const editor of [page, guest]) {
+      await expect(editor.getByRole('region', { name: 'Connection status', exact: true })).toContainText('Connected')
+      await expect(editor.getByRole('textbox', { name: 'Source code', exact: true })).toBeVisible()
+    }
+    const ownerSource = page.getByRole('textbox', { name: 'Source code', exact: true })
+    await ownerSource.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('print("from owner")')
+    await page.getByLabel('Editor language').selectOption('PYTHON')
+    await expect(guest.locator('.monaco-editor .view-lines')).toContainText('print("from owner")')
+    await expect(guest.getByLabel('Editor language')).toHaveValue('PYTHON')
+    const guestSource = guest.getByRole('textbox', { name: 'Source code', exact: true })
+    await guestSource.focus(); await guest.keyboard.press('Control+a'); await guest.keyboard.insertText('print("from guest")')
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('print("from guest")')
+    await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled()
+    await guest.getByRole('button', { name: 'Log out', exact: true }).click()
+    await expect(guestSource).toHaveCount(0)
+    expect(errors).toEqual([])
+  } finally { await context.close() }
 })

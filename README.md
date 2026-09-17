@@ -2,18 +2,19 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains the **Milestone 5 Monaco room** on the authentication and room
+contains **Milestone 6 WebSocket collaboration** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
-authorized rooms with a Java/Python editor. Drafts are temporary and local to the
-page. The worker remains a foundation; code execution is not enabled.
+authorized rooms with a shared Java/Python editor. Accepted documents live in
+Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
+last-write-wins. The worker remains a foundation; code execution is not enabled.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Modular-monolith API; authentication, rooms, health, migrations, domain repositories |
+| `backend/` | Modular-monolith API; authentication, rooms, WebSocket collaboration, health, migrations, repositories |
 | `execution-worker/` | Independent worker process; currently operational health only |
-| `frontend/` | React + TypeScript + Vite authentication, room workflows, and local Monaco editing |
+| `frontend/` | React + TypeScript + Vite authentication, room workflows, and shared Monaco editing |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
 | `scripts/` | Windows development/environment and smoke-check commands |
 | `.github/workflows/ci.yml` | Backend/worker integration tests and frontend checks |
@@ -22,7 +23,7 @@ page. The worker remains a foundation; code execution is not enabled.
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. WebSockets, queue producers/consumers, and execution
+references. Queue producers/consumers and execution
 paths remain for later milestones. No Docker socket is mounted into an application.
 
 The browser loads the React application, logs in through the API, and holds its
@@ -320,7 +321,36 @@ the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
 Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
-## Browser tests (Milestones 4–5)
+## Collaboration (Milestone 6)
+
+Open one room in two separately authenticated browser sessions after invitation
+admission. Typing and Java/Python language changes synchronize after a 300 ms
+debounce. Connection status distinguishes accepted state from pending edits,
+document resets, and failures. Run remains disabled.
+
+The browser connects to `/ws` on its configured API base URL (`ws` locally,
+`wss` with HTTPS), authenticates its STOMP CONNECT header, subscribes to authorized
+room events and private replies, and requests a snapshot. The API validates each
+send against PostgreSQL membership, atomically commits document state to Redis,
+then broadcasts it. JWT expiry closes active sockets. No token goes into the URL.
+The existing frontend origin allowlist also applies to WebSocket handshakes.
+
+Reopening restores accepted Redis state while available. Expiration/loss creates
+an explicit new document generation. Transport heartbeats do not refresh TTL.
+Disconnected or oversized local edits are visibly unsynchronized; copy them before
+leaving. There is no automatic reconnect/retry or offline replay yet. Concurrent
+full-document edits can overwrite each other, and a remote replacement clears
+local undo history. Redis is ephemeral, not a durable source backup.
+
+Defaults are 64 KiB UTF-8 source, 400,000-byte wire messages, 10 messages/second,
+100 total connections, 10 per direct peer IP, and 5 per account. The five-second
+authentication/send deadlines and 1 MiB outgoing buffer limit bound stalled
+clients. These per-API-process limits are configurable under
+`pairforge.collaboration.*`; see Architecture §7 for all properties and protocol
+details. The bounded FIFO channels trade throughput for simple ordering: one
+slow send may temporarily delay other rooms. Only one API instance is supported.
+
+## Browser tests (Milestones 4–6)
 
 Build the backend jar first with the root Maven verification command. Then:
 
@@ -350,14 +380,37 @@ volumes. Forced termination may require removing the specific
 Tests cover the real register/login/create/open and invitation admission flows;
 browser-intercepted failures separately cover unavailable requests and expired
 authentication. Editor checks cover real typing, undo/redo, language changes,
-worker completion responses, refresh preservation, draft disposal, asset failure
-and recovery, and mobile layout. Editing makes no API writes or WebSocket
-connections. Vitest covers request handling, stale responses, forms, pagination,
-and editor initialization/cleanup. GitHub Actions runs the same checks. Browser traces/videos/screenshots
+worker completion responses, refresh preservation, asset failure/recovery, and
+mobile layout. Two accounts exchange source/language changes through real
+WebSockets; reload restores accepted Redis state, and forced disconnection keeps
+local text visibly unsynchronized. Editing creates no execution or metadata
+writes. Vitest covers request handling, stale responses, forms, pagination,
+editor lifecycle, debouncing, snapshot ordering, resets, and uncertain writes.
+Java tests cover real Redis/PostgreSQL failures, membership/origin/JWT checks,
+invalid/oversized frames, quotas, sequencing, atomic versions, TTL, and log
+redaction; a deterministic transport test covers slow-client buffer overflow.
+GitHub Actions runs the same checks. Browser traces/videos/screenshots
 are disabled because they can contain credentials or invitations. Local Playwright
 failure artifacts are ignored by Git and are not uploaded by CI.
 
 ## Shutdown and troubleshooting
+
+### Milestone 6 review verification (2026-09-16)
+
+Milestone 6 remains DONE after fixing actual message-channel executor wiring,
+strict STOMP JSON types, queued-event JWT expiry, uncertain-write wording, and
+initial subscription/send error handling. Regressions reproduced the executor,
+payload-coercion, and client failures before the fixes. Final clean Maven
+verification passes 189 tests; all 46 frontend tests and eight production-browser
+tests pass. Clean install, lint, typecheck, build, dependency audit (zero known
+vulnerabilities), credential checks, Actionlint, and whitespace checks pass.
+
+Docker's recurring startup failure required backing up/recreating the inspected
+runtime socket directories; images and volumes were preserved. All required
+container tests subsequently ran, with no skips. No final failing check or
+unresolved flakiness remains. The existing Monaco chunk-size advisory remains.
+Changes are uncommitted and remote CI is unverified. Milestone 7 has not begun;
+see the roadmap for acceptance evidence and the architecture for runtime limits.
 
 ### Milestone 5 review verification (2026-09-16)
 
@@ -368,8 +421,9 @@ works. All 162 Java tests, 36 frontend tests, and six production-browser tests p
 as do clean install, lint, typecheck, build, dependency audit (zero vulnerabilities),
 credential checks, Actionlint, and whitespace checks. Docker required its known
 socket-only recovery; images and volumes were preserved. The documented Monaco
-bundle-size advisory remains. These changes are uncommitted, remote CI is
-unverified, and Milestone 6 has not begun. See the roadmap for review details.
+bundle-size advisory remains. This historical review preceded Milestone 6;
+Milestone 5 was subsequently committed and pushed as `8f79153`.
+See the roadmap for current verification details.
 
 ### Milestone 4 review verification (2026-09-16)
 
@@ -559,5 +613,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 6. The planned execution architecture retains the documented
+Milestone 7. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

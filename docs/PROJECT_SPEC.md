@@ -122,11 +122,16 @@ The room interface should contain:
 - stdout/stderr display;
 - connection status.
 
-Milestone 5 provides a temporary local draft initialized from the room's default
-language. Switching Java/Python preserves the source; leaving the room, reload,
-logout, or session expiry discards it. The UI explains this limitation. Run stays
-disabled, output remains empty, and connection status indicates local editing
-until the relevant later milestones introduce collaboration and execution.
+Milestone 5 introduced a temporary local draft. Milestone 6 shares accepted source
+and Java/Python language changes through authenticated WebSockets and Redis.
+Switching language preserves source; the room's persisted default is unchanged.
+Opening a room restores its available Redis document or explicitly initializes
+a new one after expiration/loss. Unsynchronized edits exist only in the current
+page and are discarded on leaving, reload, logout, or session expiry. The UI
+explains last-write-wins overwrites and displays pending, reset, and disconnected
+states. There is no automatic reconnect or offline replay yet; reopen the room
+to load server state. Run stays disabled and output remains empty until execution
+is implemented.
 
 ---
 

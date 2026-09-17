@@ -358,8 +358,9 @@ credential/token disclosure in errors and logs.
   adding any browser-automatic credentials. CORS uses explicit configured origins
   (startup rejects wildcards and malformed origins), GET/POST,
   and Authorization/Content-Type headers, with credentialed cookies disabled.
-  The local profile tracks the configured frontend port. WebSocket security
-  remains a separate Milestone 6 concern.
+  The local profile tracks the configured frontend port. Milestone 6 applies the
+  same explicit origin allowlist to WebSocket handshakes, with separate message
+  authentication and authorization below.
 - Authentication bodies are capped at 4096 bytes, including chunked requests.
   Request IDs precede security; body limits follow CORS/security and precede MVC,
   so allowed browsers can read oversized-request errors and denied origins cannot
@@ -434,6 +435,11 @@ no schema migration or API/worker module coupling is added for authentication.
 
 ### Milestone 5 local editor contract
 
+This describes the completed Milestone 5 baseline. Milestone 6 replaces its
+local-only source lifecycle and connection status with the shared document
+contract in §7; Monaco loading, language assets, disposal, and disabled execution
+remain unchanged.
+
 - Successful authorized room metadata loads mount one Monaco editor/model. An
   initial denial never mounts it; logout, expiry, navigation, or a subsequent
   authorization/not-found response disposes it. Transient metadata refresh
@@ -460,7 +466,7 @@ no schema migration or API/worker module coupling is added for authentication.
   authorization, dependency/asset failures, and responsive layout. Unit tests
   cover model lifecycle, StrictMode, late loads, and metadata-refresh behavior.
 
-### Later WebSocket authentication
+### Milestone 6 WebSocket authentication
 
 Use STOMP over native WebSocket with the API's simple broker; no SockJS or
 RabbitMQ STOMP relay is needed. Authenticate the STOMP CONNECT frame using an
@@ -474,6 +480,21 @@ origins, connection/message limits, and bounded outgoing buffers for slow client
 Do not treat REST CORS settings as WebSocket authorization. Token-only transport
 and any CSRF exceptions must be deliberate and tested; do not disable protections
 globally as a workaround.
+
+The implemented `/ws` upgrade permits unauthenticated HTTP GET only so a native
+browser can connect; it grants no room access. Missing/disallowed Origin or any
+query string is rejected. CONNECT requires exactly one `Authorization: Bearer
+<JWT>` native header, the existing JWT validator, and an existing PostgreSQL user.
+The socket must authenticate within five seconds. Connections close at JWT expiry
+even while idle, and message processing checks expiry again. Outbound events are
+checked both before queueing and immediately before socket delivery, since a
+queued event can outlive its token. There is no cookie
+authentication, SockJS endpoint, STOMP CSRF token, or broker relay; the existing
+stateless REST CSRF policy is unchanged. Origin checks supplement bearer
+authentication rather than replace it. STOMP client debug logging and the
+framework parser's payload-bearing logger are disabled; safe exception
+classifications are logged instead. Do not enable framework message/payload
+debug logging with real credentials or source.
 
 Server-side authorization must verify room membership before users can:
 
@@ -635,11 +656,92 @@ Truly simultaneous edits may overwrite each other.
 
 This is acceptable for the MVP and should be documented.
 
+### Milestone 6 wire contract and bounds
+
+- One native STOMP connection serves one room. Subscribe first to
+  `/user/queue/collaboration` for session-specific replies, then to
+  `/topic/rooms/{roomId}/document` for accepted room changes. Only these two
+  subscriptions are allowed. SEND is restricted to `/app/rooms/{roomId}/snapshot`
+  and `/app/rooms/{roomId}/update`; both require the subscriptions and a fresh
+  PostgreSQL membership check. Client identity comes solely from CONNECT.
+- The snapshot request is `{}`. An update contains `generationId`, positive
+  connection-local `sequence`, UUID `clientUpdateId`, `content`, and `language`
+  (`JAVA` or `PYTHON`). Room identity comes from the destination. The source must
+  be valid UTF-8 without NUL and at most 65,536 bytes. Unknown languages, malformed
+  bodies, duplicate/reordered sequences, and obsolete generations cannot mutate
+  the document. Sequence numbers provide connection-local duplicate protection;
+  update IDs correlate acknowledgements and are not a durable deduplication store.
+  The STOMP JSON converter rejects scalar type coercion (for example numeric
+  content or a fractional/string sequence) and numeric enum values. It is separate
+  from REST's mapper and does not alter existing REST contracts.
+- Replies/events contain `type`, `roomId`, `document`, `clientUpdateId`, and `code`.
+  A document contains `content`, `language`, `version`, and `generationId`.
+  Types are `SNAPSHOT`, `UPDATED`, `DOCUMENT_RESET`, `REJECTED`, and `ERROR`.
+  Successful writes broadcast `UPDATED` and reply to the originating session;
+  clients tolerate the duplicate. Initialization/reset is explicit, including a
+  `DOCUMENT_RESET` code on a newly initialized snapshot. Errors return safe codes
+  and no document; protocol/authorization/abuse failures close the connection.
+- A Redis Lua operation atomically initializes or replaces document fields,
+  increments the version, and refreshes TTL. Missing/obsolete generations do not
+  apply source. An authorized reset/snapshot initializes the room's default
+  template if needed. Heartbeats do not touch TTL. The API serializes each room's
+  commit and publication; this remains a single-API-instance implementation.
+- The browser debounces for 300 ms, with one update in flight and one coalesced
+  local draft. It orders snapshots/events by generation and version and does not
+  echo remote changes. Remote full-document replacements clear Monaco undo
+  history so undo cannot silently restore another participant's previous source;
+  acknowledgements of unchanged local text preserve local undo. A newer accepted
+  remote replacement can discard pending local edits with a visible warning.
+- Initial snapshot and update acknowledgement deadlines are ten seconds. A Redis
+  timeout or lost acknowledgement has an uncertain outcome; no write is retried.
+  Dependency-error responses also display an uncertain outcome, since a failed
+  notification can follow an already committed write. Initial subscription or
+  snapshot-send failures are caught and displayed without uncaught browser errors.
+  The UI retains local text visibly on disconnect/failure. Copy it before leaving;
+  reopening loads current Redis state and discards unsynchronized edits. There is
+  no automatic reconnect or offline replay in Milestone 6. Essential initial
+  snapshots, generation resets, and TTL failure tests are prerequisites here;
+  the broader reconnect workflow remains Milestone 7.
+- Redis commit and WebSocket publication are not atomic. API failure between
+  them can leave an accepted edit without notification. Redis state is recovered
+  on a fresh snapshot while it exists; a broadcast failure does not roll back an
+  accepted write or imply that retry is safe. This ephemeral notification gap is
+  separate from the documented execution job/event dual-write limitations.
+
+Configuration uses `pairforge.collaboration.*` (Spring environment binding is
+also supported). Defaults:
+
+| Property | Default |
+| --- | --- |
+| `ttl-seconds` | 86400 (24 hours of inactivity) |
+| `source-bytes` | 65536 (may be lowered, never raised above the MVP limit) |
+| `message-bytes` | 400000 (STOMP/JSON overhead, including escaped source) |
+| `messages-per-second` | 10 per connection; raw WebSocket frames limited to 10× this |
+| `max-connections` | 100 per API process |
+| `max-connections-per-ip` | 10 using the direct peer IP, not forwarded headers |
+| `max-connections-per-user` | 5 |
+| `connect-timeout-ms` | 5000 |
+| `send-timeout-ms` | 5000 |
+| `send-buffer-bytes` | 1048576 |
+
+Inbound and outbound channels each have one FIFO executor with a 64-task queue.
+They bind explicitly to separate executor beans; runtime integration tests verify
+that Boot auto-configuration cannot silently substitute the heartbeat scheduler.
+Configurer ordering also places strict STOMP JSON conversion before Boot's default
+converter. The expiry task explicitly uses the collaboration scheduler.
+This preserves ordering with bounded memory instead of unbounded per-session
+ordering queues. Overload rejects work, and transport writes/buffers are bounded;
+the browser exposes missing acknowledgements as uncertain failures. A slow client
+can delay other rooms until the five-second send timeout: this is a deliberate
+small-MVP throughput tradeoff, not a horizontal-scaling claim. Heartbeats run
+every ten seconds and native sockets have a 30-second idle timeout. Limits are
+per process, not distributed quotas or a two-member room restriction.
+
 ---
 
 ## 8. Redis State
 
-Suggested logical state:
+Implemented Redis hash key and fields:
 
     room:{roomId}:document
 
@@ -648,8 +750,10 @@ Containing:
     content
     version
     language
-    updatedAt
-    generationId
+    generation (exposed as generationId in messages)
+
+The hash TTL provides inactivity tracking; no separate updatedAt field is needed
+for this milestone.
 
 Redis may additionally store room presence and rate-limit counters.
 

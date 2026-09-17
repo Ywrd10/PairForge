@@ -31,6 +31,11 @@ export class Session {
     if (this.token && Date.now() >= this.expiresAt) this.logout(true)
   }
   millisecondsRemaining = () => Math.max(0, this.expiresAt - Date.now())
+  collaborationHeaders = () => {
+    this.checkExpiry()
+    if (!this.token) throw new ApiError('Please log in again.', 401)
+    return { Authorization: `Bearer ${this.token}` }
+  }
 
   async login(email: string, password: string, signal: AbortSignal) {
     this.logout()

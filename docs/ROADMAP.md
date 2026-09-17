@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 5 (DONE). Monaco room acceptance checks pass.
-Milestone 6 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 6 (DONE). Authenticated collaboration acceptance
+checks pass. Milestone 7 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -677,7 +677,7 @@ execution path is available; no fake success or host-process runner is used.
 
 ## Milestone 6 — WebSocket Collaboration
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -702,6 +702,114 @@ Two browsers logged into different accounts can join one room and see each
 other's editor changes. Nonmembers cannot subscribe or send updates; expired
 tokens and oversized/invalid messages are rejected. Concurrent updates preserve
 content/version consistency. Include Redis Testcontainers and authorization tests.
+
+### Implementation and verification (2026-09-16)
+
+- Added native STOMP `/ws` with CONNECT bearer authentication, explicit origin
+  checks, query-token rejection, PostgreSQL user/membership authorization on
+  subscriptions and sends, denied unmatched destinations, and established-session
+  JWT expiry. No SockJS, RabbitMQ relay, or new application service was introduced.
+- The collaboration domain separates thin message controllers, services, Redis
+  persistence, security, session limits, and transport configuration. Redis Lua
+  atomically maintains content/language/version/generation and the 24-hour
+  inactivity TTL. Initial snapshots, explicit resets, and obsolete-generation
+  rejection make the first collaboration implementation safe; no durable editor
+  schema or execution-worker change was required.
+- The browser centralizes its connection/state handling, debounces full-document
+  replacements for 300 ms, keeps one update in flight, and orders snapshots/events.
+  Monaco suppresses remote-change echoes. Pending, overwritten, reset, and
+  disconnected states are visible; unsynchronized text stays local. Reopening
+  loads Redis state. Automatic reconnect/offline replay remains unimplemented.
+- Configured source/frame/rate/connection limits, authentication and acknowledgement
+  deadlines, bounded channel queues and outgoing buffers, and transport send
+  timeouts. Protocol errors omit payloads/tokens from responses and logs. The
+  single FIFO channel tradeoff and Redis-commit-to-notification gap are documented
+  in Architecture §7; neither is represented as guaranteed durable delivery.
+- Root Maven `verify` passes **182 tests: 41 unit and 141 integration**, with zero
+  failures, errors, or skips. The 17 new real-container collaboration tests cover
+  three members, two-way authorization, origins/tokens/expiry, denied destinations,
+  duplicate/reordered updates, malformed/oversized frames, the valid 64 KiB UTF-8
+  boundary, forged identity, connection/message limits, concurrent writes and
+  snapshot ordering, TTL refresh/expiry/heartbeat behavior, Redis reset/outage,
+  PostgreSQL outage, and log redaction. Three unit tests cover connection admission,
+  idle expiry, and deterministic slow-client send-buffer overflow.
+- Clean frontend install, lint, typecheck, all **44 Vitest tests**, production
+  build, and all **8 Playwright tests** pass. Browser acceptance uses the production
+  frontend and a fresh API with real PostgreSQL/Redis/RabbitMQ: different accounts
+  exchange edits and language changes, accepted state survives reopening/reload,
+  and forced disconnection retains a visibly unsynchronized draft. Browser retries
+  are disabled. Frontend tests cover debouncing, one in-flight write, snapshot
+  ordering, reset without replay, malformed data, and uncertain acknowledgement.
+- Fixed issues exposed during verification: the native socket's default frame
+  size rejected valid large documents, a stale test expected local-only drafts,
+  and a reset acknowledgement could schedule another update. Regression checks
+  pass after configuring native frame limits, aligning lifecycle assertions with
+  Redis state, and preventing post-reset replay.
+- Dependency audit reports zero known vulnerabilities. Credential provisioning/
+  environment checks, Actionlint, and tracked/new-file whitespace checks pass.
+  Secrets, test logs, dependencies, and build output remain ignored. Test-owned
+  browser/API/container resources are cleaned up without changing development data.
+- Every Milestone 6 acceptance criterion passes locally; no required check is
+  failing or skipped and no unresolved flakiness was observed. Remote GitHub
+  Actions for these uncommitted changes is unverified. The unchanged development
+  smoke script was not repeated; real dependency failure and browser checks ran.
+  Slow-client buffer overflow is tested deterministically, not as a network load
+  benchmark. The existing large Monaco chunk advisory remains non-blocking.
+- README, Specification, and Architecture now describe the implemented protocol,
+  configuration, flow, tests, and limitations. Run remains disabled. Milestone 7
+  and all later milestones remain TODO; do not begin them automatically.
+
+### Review verification (2026-09-16)
+
+- Re-read AGENTS, Specification, Architecture, and this roadmap; reviewed the
+  complete collaboration domain, frontend connection/editor lifecycle, dependency
+  changes, and tests. Every Milestone 6 acceptance criterion passes after the fixes
+  below. Status remains DONE; Milestone 7 remains TODO.
+- Fixed actual channel wiring: Boot selected the same unbounded scheduler for
+  both channels despite the intended executor limits. Separate explicitly bound
+  FIFO executor beans now enforce one thread and a 64-task queue each. A new
+  integration test inspects the running channels and reproduced the old failure.
+  The expiry task now explicitly selects its scheduler. Outbound authorization
+  also rechecks JWT expiry immediately before delivery, covering time in the queue.
+- Fixed JSON coercion: numeric source and fractional/string sequences were
+  accepted and mutated Redis. A strict STOMP-only converter now precedes Boot's
+  converter. Five real-WebSocket payload-type cases pass; three failed before
+  the fix. Existing REST behavior is unchanged. The first converter change was
+  ineffective because of ordering; regression tests caught it before completion.
+- Fixed the client to describe dependency failures as uncertain outcomes and to
+  catch initial subscription/snapshot-send exceptions. Both new client regressions
+  failed before the fixes and now pass; no automatic retry/reconnect was added.
+- Acceptance evidence: separate browser accounts exchange source and language;
+  backend tests verify three members, denied subscriptions/sends/destinations,
+  JWT/origin/expiry checks, invalid/oversized messages, connection/rate limits,
+  duplicate sequences, atomic concurrent versions, snapshot ordering, TTL/reset,
+  and PostgreSQL/Redis failures. Deterministic tests cover slow-client buffer
+  overflow, actual executor bounds, and queued-event expiry. No load or hostile
+  network benchmark is claimed.
+- Final root Maven `clean verify`: **189 tests pass (41 unit, 148 integration)**,
+  zero failures/errors/skips, including 24 collaboration integration tests and all
+  11 worker regressions. Clean frontend install, lint, typecheck, all **46 Vitest
+  tests**, production build, and all **8 Playwright tests** pass. The final browser
+  run uses the final backend jar, real dependencies, and retries disabled.
+- Dependency audit reports zero known vulnerabilities. Credential/environment
+  scripts, Actionlint, tracked/new-file whitespace, and ignored-secret/build-output
+  checks pass. Temporary API/browser/container resources were removed. The unchanged
+  full development smoke script was not repeated; integration outage and real
+  browser checks cover the affected paths.
+- Docker was initially stopped and then failed on both known inaccessible runtime
+  sockets. With Docker stopped, only inspected zero-byte socket directories were
+  backed up/recreated; Engine 29.4.3 then ran the required checks. Images and data
+  volumes were preserved. This restores operation, not a permanent fix for the
+  recurring Docker Desktop startup issue. The initial Docker test failure and the
+  intentionally failing regressions are resolved; no final required check is
+  failing/skipped and no unresolved flakiness was observed.
+- Architecture/README document the corrected runtime guarantees and error behavior.
+  No unnecessary future-milestone feature, new technology, schema change, worker
+  behavior, host execution, or obvious dead feature code was found. Initial Redis
+  snapshots/TTL/reset remain necessary Milestone 6 safety prerequisites. Existing
+  last-write-wins, ephemeral Redis, single-API throughput, notification-gap, and
+  Monaco bundle-size limitations remain explicit. Changes are uncommitted;
+  remote GitHub Actions for this review remains unverified.
 
 ---
 
