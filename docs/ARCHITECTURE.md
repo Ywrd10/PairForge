@@ -701,7 +701,7 @@ This is acceptable for the MVP and should be documented.
   reopening loads current Redis state and discards unsynchronized edits. There is
   no automatic reconnect or offline replay in Milestone 6. Essential initial
   snapshots, generation resets, and TTL failure tests are prerequisites here;
-  the broader reconnect workflow remains Milestone 7.
+  Milestone 7 adds the manual recovery workflow described below.
 - Redis commit and WebSocket publication are not atomic. API failure between
   them can leave an accepted edit without notification. Redis state is recovered
   on a fresh snapshot while it exists; a broadcast failure does not roll back an
@@ -738,6 +738,34 @@ every ten seconds and native sockets have a 30-second idle timeout. Limits are
 per process, not distributed quotas or a two-member room restriction.
 
 ---
+
+### Milestone 7 manual recovery
+
+- Reconnect is an explicit action, including after initial connection failure.
+  Each attempt uses fresh session headers, creates a new STOMP connection,
+  reauthorizes subscriptions/sends, and requests an authoritative snapshot.
+  Only one attempt is active. Old connections, callbacks, debounce timers, and
+  in-flight acknowledgements cannot mutate a later connection's state.
+- The editor and language selector are read-only while connecting/synchronizing.
+  Updates received before the snapshot are buffered and ordered by generation
+  and version. Only a snapshot completes synchronization. A snapshot cannot
+  regress a known version within the same generation, even across reconnects.
+  Reset events retire old generations. A changed generation is visibly reported
+  even if another participant initialized the replacement document first.
+- Before recovery replaces pending/uncertain edits, preserve one memory-only
+  backup containing their source and language. Copy and discard are explicit UI
+  actions; clipboard failure leaves selectable text available. Another recovery
+  with pending edits replaces this single backup. Navigation, reload, logout,
+  and session expiry discard the page and backup. There is no browser storage,
+  durable checkpoint, backup history, merge, or automatic replay.
+- Failed recovery retains the visible local text and backup, and permits another
+  explicit attempt. After a successful snapshot only a deliberate new edit can
+  publish, using the new connection's sequence starting at one. Initial/recovery
+  snapshot and update-acknowledgement deadlines remain ten seconds; a reset event
+  alone does not satisfy the snapshot deadline. No automatic retry is enabled.
+- Redis TTL, atomic storage operations, security checks, wire schema, and the
+  single-API broker remain as implemented in Milestone 6. Recovery adds no REST
+  endpoint, PostgreSQL table, worker behavior, or execution feature.
 
 ## 8. Redis State
 

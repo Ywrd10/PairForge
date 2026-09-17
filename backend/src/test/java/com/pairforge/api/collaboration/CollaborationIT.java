@@ -136,6 +136,74 @@ class CollaborationIT {
         assertThat(event(c, "UPDATED").get("document")).isEqualTo(accepted);
         assertThat(documents.snapshot(room, Language.JAVA).document().content()).isEqualTo("print('shared')");
     }
+    @Test void reconnectRestoresLatestCommittedDocumentAndRestartsConnectionSequence() throws Exception {
+        var owner = actor(); var other = actor(); var room = room(owner);
+        members.saveAndFlush(new RoomMember(room, other.id()));
+        var old = connect(owner.token()); var initial = join(old, room);
+        update(old, room, initial, 9, "before disconnect"); event(old, "UPDATED"); old.socket.abort();
+        var writer = connect(other.token()); var current = join(writer, room);
+        update(writer, room, current, 1, "latest server content");
+        var latest = event(writer, "UPDATED").get("document");
+        var recovered = connect(owner.token());
+        assertThat(join(recovered, room)).isEqualTo(latest);
+        assertThat(latest.get("generationId")).isEqualTo(initial.get("generationId"));
+        assertThat(latest.get("language").asText()).isEqualTo("PYTHON");
+        update(recovered, room, latest, 1, "deliberate new edit");
+        assertThat(event(recovered, "UPDATED").get("document").get("version").asLong()).isEqualTo(3);
+    }
+    @Test void reconnectAfterExpirySeesGenerationInitializedByAnotherMemberAndRejectsOldDraft() throws Exception {
+        var owner = actor(); var room = room(owner); var old = connect(owner.token()); var initial = join(old, room);
+        old.socket.abort();
+        redis.expire(DocumentRepository.key(room), Duration.ofMillis(100));
+        await().atMost(Duration.ofSeconds(2)).until(() -> Boolean.FALSE.equals(redis.hasKey(DocumentRepository.key(room))));
+        var initializer = connect(owner.token()); var fresh = join(initializer, room);
+        var recovered = connect(owner.token()); var restored = join(recovered, room);
+        assertThat(restored).isEqualTo(fresh);
+        assertThat(restored.get("generationId")).isNotEqualTo(initial.get("generationId"));
+        update(recovered, room, initial, 1, "stale offline draft");
+        var reset = event(recovered, "DOCUMENT_RESET").get("document");
+        assertThat(reset).isEqualTo(fresh);
+        assertThat(documents.snapshot(room, Language.JAVA).document().version()).isZero();
+    }
+    @Test void simultaneousRecoveryOfMissingDocumentCreatesExactlyOneGeneration() throws Exception {
+        var owner = actor(); var room = room(owner);
+        try (var pool = Executors.newFixedThreadPool(4)) {
+            var futures = new ArrayList<Future<DocumentRepository.Result>>();
+            for (int i = 0; i < 12; i++) futures.add(pool.submit(() -> documents.snapshot(room, Language.JAVA)));
+            var generations = new HashSet<UUID>();
+            for (var future : futures) {
+                var document = future.get(5, TimeUnit.SECONDS).document();
+                generations.add(document.generationId());
+                assertThat(document.version()).isZero(); assertThat(document.content()).contains("public class Main");
+            }
+            assertThat(generations).hasSize(1);
+        }
+    }
+    @Test void failedReconnectSnapshotCanBeRetriedAfterRedisRecovers() throws Exception {
+        var owner = actor(); var room = room(owner); var old = connect(owner.token()); var initial = join(old, room);
+        update(old, room, initial, 1, "retained during outage"); var latest = event(old, "UPDATED").get("document");
+        old.socket.abort();
+        // Keep this fixture alive across the command timeout; expiry is tested separately.
+        redis.expire(DocumentRepository.key(room), Duration.ofSeconds(30));
+        var failed = connect(owner.token());
+        failed.send("SUBSCRIBE", "id:private\ndestination:/user/queue/collaboration", "");
+        failed.send("SUBSCRIBE", "id:room\ndestination:/topic/rooms/" + room + "/document", "");
+        REDIS.getDockerClient().pauseContainerCmd(REDIS.getContainerId()).exec();
+        try {
+            failed.send("SEND", "destination:/app/rooms/" + room + "/snapshot\ncontent-type:application/json", "{}");
+            assertThat(event(failed, "ERROR").get("code").asText()).isEqualTo("COLLABORATION_UNAVAILABLE");
+        } finally { REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec(); }
+        failed.socket.abort();
+        assertThat(join(connect(owner.token()), room)).isEqualTo(latest);
+    }
+    @Test void reconnectRechecksMembershipBeforeRestoringDocument() throws Exception {
+        var owner = actor(); var room = room(owner); var old = connect(owner.token()); join(old, room); old.socket.abort();
+        members.deleteById(new RoomMemberId(room, owner.id())); members.flush();
+        var recovered = connect(owner.token());
+        recovered.send("SUBSCRIBE", "id:room\ndestination:/topic/rooms/" + room + "/document", "");
+        recovered.awaitClosed();
+        assertThat(documents.snapshot(room, Language.JAVA).document().version()).isZero();
+    }
     @Test void runtimeChannelsActuallyUseSeparateBoundedFifoExecutors() {
         var inbound = context.getBean("clientInboundChannel", org.springframework.messaging.support.ExecutorSubscribableChannel.class).getExecutor();
         var outbound = context.getBean("clientOutboundChannel", org.springframework.messaging.support.ExecutorSubscribableChannel.class).getExecutor();

@@ -56,6 +56,7 @@ export default async function setup() {
     const pg = container('postgres', 'postgres:17.11-bookworm', 5432,
       ['POSTGRES_DB=pairforge', 'POSTGRES_USER=pairforge', `POSTGRES_PASSWORD=${password}`])
     const redis = container('redis', 'redis:7.4.11-bookworm', 6379)
+    process.env.PAIRFORGE_E2E_REDIS_CONTAINER = names[1]
     const rabbit = container('rabbit', 'rabbitmq:4.1.8', 5672,
       ['RABBITMQ_DEFAULT_USER=pairforge', `RABBITMQ_DEFAULT_PASS=${password}`])
     // Wait for PostgreSQL before Flyway starts. Redis/Rabbit readiness is checked through the API.

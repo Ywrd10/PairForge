@@ -24,12 +24,14 @@ const room = '11111111-1111-4111-8111-111111111111'
 const generation = '22222222-2222-4222-8222-222222222222'
 let client: CollaborationClient
 let transport: FakeTransport
+let headers: ReturnType<typeof vi.fn>
 function event(type = 'SNAPSHOT', version = 0, content = 'initial', clientUpdateId: string | null = null, gen = generation) {
   transport.receive!({ body: JSON.stringify({ type, roomId: room, document: { generationId: gen, version, content, language: 'JAVA' }, clientUpdateId, code: null }) } as IMessage)
 }
 beforeEach(() => {
   vi.useFakeTimers()
-  const session = { collaborationHeaders: () => ({ Authorization: 'Bearer test-only' }) } as Session
+  headers = vi.fn(() => ({ Authorization: 'Bearer test-only' }))
+  const session = { collaborationHeaders: headers } as unknown as Session
   client = new CollaborationClient(session, room, 'starter', 'JAVA')
   client.start(); transport = harness.current!
 })
@@ -113,4 +115,76 @@ it('handles an asynchronous snapshot send failure without an uncaught transport 
   expect(client.getSnapshot().connected).toBe(false)
   expect(client.getSnapshot().notice).toContain('unavailable')
   expect(transport.deactivate).toHaveBeenCalled()
+})
+function reconnect() { transport.onWebSocketClose!(); client.start(); transport = harness.current! }
+it('reconnects once, waits for a snapshot, preserves a backup, and ignores old callbacks', () => {
+  event(); client.edit('local draft', 'PYTHON'); vi.advanceTimersByTime(300)
+  const old = transport
+  reconnect(); const fresh = transport; client.start()
+  expect(harness.current).toBe(fresh)
+  expect(client.getSnapshot()).toMatchObject({ connecting: true, ready: false, backup: { content: 'local draft', language: 'PYTHON' } })
+  client.edit('must not edit during sync', 'JAVA'); vi.advanceTimersByTime(300)
+  old.onWebSocketClose!(); old.onConnect!(); old.beforeConnect!()
+  old.receive!({ body: 'malformed old callback' } as IMessage)
+  expect(client.getSnapshot().connecting).toBe(true)
+  event('SNAPSHOT', 2, 'server latest')
+  expect(client.getSnapshot()).toMatchObject({ connecting: false, ready: true, content: 'server latest', pending: false })
+  vi.advanceTimersByTime(1000); expect(fresh.publish).toHaveBeenCalledTimes(1)
+  client.edit('intentional new edit', 'JAVA'); vi.advanceTimersByTime(300)
+  expect(JSON.parse(fresh.publish.mock.lastCall![0].body).sequence).toBe(1)
+  expect(headers).toHaveBeenCalledTimes(2)
+  client.clearBackup(); expect(client.getSnapshot().backup).toBeNull(); client.stop()
+})
+it('reports a reset even when another member already initialized the new generation', () => {
+  event(); client.edit('keep old draft', 'JAVA'); reconnect()
+  event('SNAPSHOT', 3, 'other member edit', null, '33333333-3333-4333-8333-333333333333')
+  expect(client.getSnapshot()).toMatchObject({ content: 'other member edit', backup: { content: 'keep old draft' } })
+  expect(client.getSnapshot().notice).toContain('reset'); client.stop()
+})
+it('orders reset and snapshot races during recovery without replay or version regression', () => {
+  event('SNAPSHOT', 4, 'previous'); reconnect()
+  event('UPDATED', 5, 'old generation last')
+  event('DOCUMENT_RESET', 0, 'new starter', null, '33333333-3333-4333-8333-333333333333')
+  event('UPDATED', 1, 'new generation latest', null, '33333333-3333-4333-8333-333333333333')
+  expect(client.getSnapshot().content).toBe('previous')
+  event('SNAPSHOT', 5, 'old generation last')
+  expect(client.getSnapshot()).toMatchObject({ content: 'new generation latest', ready: true, connected: true })
+  event('UPDATED', 999, 'obsolete'); expect(client.getSnapshot().content).toBe('new generation latest')
+  vi.advanceTimersByTime(1000); expect(transport.publish).toHaveBeenCalledTimes(1); client.stop()
+})
+it('keeps the snapshot deadline after a reset arrives without a snapshot', () => {
+  event(); reconnect()
+  event('DOCUMENT_RESET', 0, 'new', null, '33333333-3333-4333-8333-333333333333')
+  vi.advanceTimersByTime(10000)
+  expect(client.getSnapshot()).toMatchObject({ connected: false, connecting: false, content: 'initial' })
+  expect(client.getSnapshot().notice).toContain('timed out')
+})
+it('retains a draft through failed recovery and loads state on another explicit attempt', () => {
+  event(); client.edit('copy this', 'JAVA'); reconnect()
+  transport.onStompError!()
+  expect(client.getSnapshot()).toMatchObject({ content: 'copy this', ready: true, backup: { content: 'copy this' } })
+  client.start(); transport = harness.current!; event('SNAPSHOT', 1, 'recovered')
+  expect(client.getSnapshot()).toMatchObject({ content: 'recovered', backup: { content: 'copy this' } })
+  vi.advanceTimersByTime(1000); expect(transport.publish).toHaveBeenCalledTimes(1); client.stop()
+})
+it('cancels recovery on disposal and refuses reconnect authentication after expiry', () => {
+  event(); reconnect(); client.stop()
+  event('SNAPSHOT', 10, 'late snapshot'); vi.advanceTimersByTime(20000)
+  expect(client.getSnapshot().content).toBe('initial')
+  headers.mockImplementation(() => { throw new Error('Expired session') })
+  client.start(); transport = harness.current!
+  expect(client.getSnapshot()).toMatchObject({ connected: false, connecting: false })
+  expect(client.getSnapshot().notice).toContain('log in')
+  expect(transport.publish).not.toHaveBeenCalled()
+})
+it('rejects a lower snapshot version in the same generation across reconnects', () => {
+  event('SNAPSHOT', 5, 'accepted'); reconnect(); event('SNAPSHOT', 4, 'older')
+  expect(client.getSnapshot()).toMatchObject({ content: 'accepted', connected: false })
+})
+it('keeps the accepted version floor when an acknowledgement preserves a newer local draft', () => {
+  event(); client.edit('sent', 'JAVA'); vi.advanceTimersByTime(300)
+  const sent = JSON.parse(transport.publish.mock.lastCall![0].body)
+  client.edit('typed after send', 'JAVA'); event('UPDATED', 1, 'sent', sent.clientUpdateId)
+  reconnect(); event('SNAPSHOT', 0, 'initial')
+  expect(client.getSnapshot()).toMatchObject({ connected: false, content: 'typed after send', backup: { content: 'typed after send' } })
 })

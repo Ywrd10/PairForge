@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { test, expect } from '@playwright/test'
 import type { Page, WebSocketRoute } from '@playwright/test'
 
@@ -16,6 +17,49 @@ async function registerAndLogin(page: Page) {
   await expect(page.getByRole('heading', { name: 'Your workspace' })).toBeVisible()
   return { email, password }
 }
+
+function redisFixture(args: string[]) {
+  const name = process.env.PAIRFORGE_E2E_REDIS_CONTAINER
+  if (!name || !/^pairforge-e2e-[0-9a-f]{12}-redis$/.test(name)) throw new Error('Missing isolated Redis fixture')
+  return execFileSync('docker', [args[0], name, ...args.slice(1)], { encoding: 'utf8', timeout: 10_000, windowsHide: true }).trim()
+}
+
+test('Redis outage is visible and recovery after data loss explicitly resets the document', async ({ page }) => {
+  let connection: WebSocketRoute | undefined
+  await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { connection = socket; socket.connectToServer() })
+  await registerAndLogin(page)
+  await page.getByLabel('Room name', { exact: true }).fill('Redis recovery')
+  await page.getByRole('button', { name: 'Create room', exact: true }).click()
+  const id = await page.getByLabel('Room ID', { exact: true }).inputValue()
+  await page.getByRole('link', { name: 'Open room', exact: true }).click()
+  const status = page.getByRole('region', { name: 'Connection status', exact: true })
+  const source = page.getByRole('textbox', { name: 'Source code', exact: true })
+  const lines = page.locator('.monaco-editor .view-lines')
+  await expect(status).toContainText('Connected')
+  await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('saved before outage')
+  await expect(status).toContainText('synchronized in Redis')
+  await connection!.close({ code: 1011, reason: 'Test Redis outage recovery' })
+  await expect(status).toContainText('Disconnected')
+  await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('offline backup')
+  redisFixture(['pause'])
+  try {
+    await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+    await expect(status).toContainText('Collaboration unavailable', { timeout: 15_000 })
+    await expect(lines).toContainText('offline backup')
+    await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeEnabled()
+  } finally { redisFixture(['unpause']) }
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+  await expect(status).toContainText('synchronized in Redis')
+  await expect(lines).toContainText('saved before outage')
+  await expect(page.getByLabel('Local draft backup', { exact: true })).toHaveValue('offline backup')
+  await connection!.close({ code: 1011, reason: 'Test data loss' })
+  await expect(status).toContainText('Disconnected')
+  expect(redisFixture(['exec', 'redis-cli', 'DEL', `room:{${id}}:document`])).toBe('1')
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+  await expect(status).toContainText('document reset')
+  await expect(lines).toContainText('public class Main')
+  await expect(page.getByLabel('Local draft backup', { exact: true })).toHaveValue('offline backup')
+})
 
 test('a lost collaboration connection keeps a visible local draft without replay', async ({ page }) => {
   let connection: WebSocketRoute | undefined
@@ -40,6 +84,24 @@ test('a lost collaboration connection keeps a visible local draft without replay
   await expect(page.locator('.monaco-editor .view-lines')).toContainText('local copy after disconnect')
   await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled()
   expect(connections).toBe(1)
+  await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
+  await expect(status).toContainText('synchronized in Redis')
+  await expect(page.locator('.monaco-editor .view-lines')).toContainText('public class Main')
+  await expect(page.getByLabel('Local draft backup', { exact: true })).toHaveValue('local copy after disconnect')
+  expect(connections).toBe(2)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.getByRole('button', { name: 'Copy draft', exact: true }).click()
+  await expect(status).toContainText('Draft copied.')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('local copy after disconnect')
+  await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('Clipboard denied') } })
+  await page.getByRole('button', { name: 'Copy draft', exact: true }).click()
+  await expect(status).toContainText('Copy unavailable')
+  await page.setViewportSize({ width: 390, height: 844 })
+  // Monaco's ResizeObserver completes asynchronously after the viewport changes.
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0])
+  await page.getByRole('button', { name: 'Discard backup', exact: true }).click()
+  await expect(page.getByLabel('Local draft backup', { exact: true })).toHaveCount(0)
 })
 
 test('real browser registration, creation, invitation admission, navigation and memory-only sessions', async ({ page, browser }) => {
@@ -279,6 +341,8 @@ test('two authorized accounts exchange edits and language changes without execut
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:15173' })
   try {
     const guest = await context.newPage()
+    let guestSocket: WebSocketRoute | undefined
+    await guest.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { guestSocket = socket; socket.connectToServer() })
     guest.on('pageerror', error => errors.push(error.message))
     await registerAndLogin(guest)
     await guest.getByLabel('Room ID to join').fill(id)
@@ -297,8 +361,24 @@ test('two authorized accounts exchange edits and language changes without execut
     await guestSource.focus(); await guest.keyboard.press('Control+a'); await guest.keyboard.insertText('print("from guest")')
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('print("from guest")')
     await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled()
+    const guestStatus = guest.getByRole('region', { name: 'Connection status', exact: true })
+    await guestSocket!.close({ code: 1011, reason: 'Test reconnect' })
+    await expect(guestStatus).toContainText('Disconnected')
+    await guestSource.focus(); await guest.keyboard.press('Control+a'); await guest.keyboard.insertText('private offline draft')
+    await ownerSource.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('latest while guest away')
+    await page.getByLabel('Editor language').selectOption('JAVA')
+    await expect(page.getByRole('region', { name: 'Connection status', exact: true })).toContainText('synchronized in Redis')
+    await guest.getByRole('button', { name: 'Reconnect', exact: true }).click()
+    await expect(guestStatus).toContainText('synchronized in Redis')
+    await expect(guest.locator('.monaco-editor .view-lines')).toContainText('latest while guest away')
+    await expect(guest.getByLabel('Editor language')).toHaveValue('JAVA')
+    await expect(guest.getByLabel('Local draft backup', { exact: true })).toHaveValue('private offline draft')
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('latest while guest away')
+    await guestSource.focus(); await guest.keyboard.press('Control+a'); await guest.keyboard.insertText('deliberate edit after recovery')
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('deliberate edit after recovery')
     await guest.getByRole('button', { name: 'Log out', exact: true }).click()
     await expect(guestSource).toHaveCount(0)
+    await expect(guest.getByLabel('Local draft backup', { exact: true })).toHaveCount(0)
     expect(errors).toEqual([])
   } finally { await context.close() }
 })

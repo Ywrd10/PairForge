@@ -55,7 +55,7 @@ try {
     foreach ($name in @('environment.ps1', 'provision-worker.ps1', 'provision-worker.sql')) {
         Remove-Item -LiteralPath (Join-Path $fixtureScripts $name) -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath (Join-Path $fixture '.env') -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $fixture '.env') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $fixtureScripts
     Remove-Item -LiteralPath $fixture
 }

@@ -28,6 +28,7 @@ form button { margin-top: .7rem; }
 label { display: block; margin-top: .6rem; font-weight: 550; }
 input, select { width: 100%; min-width: 0; padding: .65rem .8rem; border-radius: 6px; border: 1px solid #567069; background: #101c20; color: #f3f7f6; }
 small { color: #b8ccc7; }
+.draft-backup { width: 100%; min-width: 0; resize: vertical; font-family: monospace; padding: .75rem; background: #101c20; color: #f3f7f6; border: 1px solid #567069; border-radius: 6px; }
 .panel { border: 1px solid #334548; background: #16262a; border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; min-width: 0; }
 .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
 .columns .panel { margin-top: 0; }

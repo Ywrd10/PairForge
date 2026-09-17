@@ -129,9 +129,14 @@ Opening a room restores its available Redis document or explicitly initializes
 a new one after expiration/loss. Unsynchronized edits exist only in the current
 page and are discarded on leaving, reload, logout, or session expiry. The UI
 explains last-write-wins overwrites and displays pending, reset, and disconnected
-states. There is no automatic reconnect or offline replay yet; reopen the room
-to load server state. Run stays disabled and output remains empty until execution
-is implemented.
+states. Milestone 7 adds a manual Reconnect action that authenticates again and
+loads a fresh snapshot before enabling edits. Pending/uncertain local edits are
+retained as one copyable backup (source and language) before recovery replaces
+the editor; they are never replayed automatically. The backup exists only in this
+page, can be discarded, and is replaced by the latest unsynchronized draft on a
+later recovery. Copy it before navigation, reload, logout, or session expiry.
+There is no automatic reconnect. Run stays disabled and output remains empty
+until execution is implemented.
 
 ---
 

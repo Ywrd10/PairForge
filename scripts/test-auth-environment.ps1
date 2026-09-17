@@ -57,7 +57,7 @@ function Invoke-PairForgeCommand {
     foreach ($name in @('initialize-auth.ps1', 'environment.ps1', 'dev.ps1')) {
         Remove-Item -LiteralPath (Join-Path $fixtureScripts $name) -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath (Join-Path $fixture '.env') -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $fixture '.env') -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $fixture 'frontend')
     Remove-Item -LiteralPath $fixtureScripts
     Remove-Item -LiteralPath $fixture

@@ -2,7 +2,7 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 6 WebSocket collaboration** on the authentication and room
+contains **Milestone 7 collaboration recovery** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
@@ -321,7 +321,7 @@ the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
 Remote CI can only be verified after the repository is connected and pushed to
 GitHub. A locally passing build alone does not establish a passing remote run.
 
-## Collaboration (Milestone 6)
+## Collaboration (Milestones 6–7)
 
 Open one room in two separately authenticated browser sessions after invitation
 admission. Typing and Java/Python language changes synchronize after a 300 ms
@@ -335,10 +335,15 @@ send against PostgreSQL membership, atomically commits document state to Redis,
 then broadcasts it. JWT expiry closes active sockets. No token goes into the URL.
 The existing frontend origin allowlist also applies to WebSocket handshakes.
 
-Reopening restores accepted Redis state while available. Expiration/loss creates
-an explicit new document generation. Transport heartbeats do not refresh TTL.
-Disconnected or oversized local edits are visibly unsynchronized; copy them before
-leaving. There is no automatic reconnect/retry or offline replay yet. Concurrent
+Click **Reconnect** after connection loss to authenticate again and load the latest
+Redis document. Editing pauses until the snapshot arrives; failed recovery keeps
+the visible draft and allows another explicit attempt. Pending/uncertain edits
+are saved as one memory-only backup with Copy draft and Discard backup actions.
+A later recovery with pending edits replaces that backup. Copy before leaving,
+reloading, logout, or session expiry; none of the draft is persisted in the browser.
+Expiration/loss creates an explicit new document generation, including when
+another participant initializes it before you reconnect. Heartbeats do not
+refresh TTL. There is no automatic reconnect/retry or offline replay. Concurrent
 full-document edits can overwrite each other, and a remote replacement clears
 local undo history. Redis is ephemeral, not a durable source backup.
 
@@ -395,6 +400,23 @@ failure artifacts are ignored by Git and are not uploaded by CI.
 
 ## Shutdown and troubleshooting
 
+### Milestone 7 review verification (2026-09-17)
+
+Milestone 7 remains DONE after reviewing all acceptance criteria and the recovery,
+authorization, Redis, and backup paths. Clean Maven verification passes 194 tests;
+Node 24.19.0 checks pass 54 frontend tests, nine production-browser tests, and three
+additional recovery-case runs with retries disabled. Lint, typecheck, build,
+dependency audit (zero vulnerabilities), Windows/Linux credential checks,
+Actionlint, and whitespace checks pass. No application-code correction was needed.
+The existing Monaco bundle-size advisory remains.
+
+The latest [remote CI run](https://github.com/Ywrd10/PairForge/actions/runs/35165402635)
+tests Milestone 6 commit `b08b72c`: frontend passed, but credential-fixture cleanup
+failed on Linux and prevented backend/worker tests from running. The hidden `.env`
+cleanup fixes are locally verified on Linux and remain unpushed with Milestone 7.
+Remote CI is still unverified for these changes; a subsequent authorized push and
+passing workflow are needed. Milestone 8 has not begun.
+
 ### Milestone 6 review verification (2026-09-16)
 
 Milestone 6 remains DONE after fixing actual message-channel executor wiring,
@@ -409,8 +431,9 @@ Docker's recurring startup failure required backing up/recreating the inspected
 runtime socket directories; images and volumes were preserved. All required
 container tests subsequently ran, with no skips. No final failing check or
 unresolved flakiness remains. The existing Monaco chunk-size advisory remains.
-Changes are uncommitted and remote CI is unverified. Milestone 7 has not begun;
-see the roadmap for acceptance evidence and the architecture for runtime limits.
+At that review, changes were uncommitted, remote CI was unverified, and Milestone 7
+had not begun. See the roadmap for current acceptance evidence and the
+architecture for runtime limits.
 
 ### Milestone 5 review verification (2026-09-16)
 
@@ -613,5 +636,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 7. The planned execution architecture retains the documented
+Milestone 8. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

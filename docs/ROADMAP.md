@@ -9,8 +9,8 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 6 (DONE). Authenticated collaboration acceptance
-checks pass. Milestone 7 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 7 (DONE). Collaboration recovery and Redis lifetime
+acceptance checks pass. Milestone 8 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -815,7 +815,7 @@ content/version consistency. Include Redis Testcontainers and authorization test
 
 ## Milestone 7 — Collaboration Reconnect and Redis Lifetime
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -835,6 +835,80 @@ Reconnect restores the latest state while it remains in Redis. TTL expiry and
 Redis data loss explicitly reset the document; old-generation updates are
 rejected. Tests cover TTL refresh/expiry, snapshot races, and dependency failure
 using controllable shorter test TTLs rather than waiting 24 hours.
+
+Implementation and verification (2026-09-17):
+
+- Added manual Reconnect with fresh authenticated subscriptions and a snapshot
+  before sends resume. Recovery ignores old connections and timers, buffers
+  racing events, rejects version regression, resets per-connection sequencing,
+  and visibly reports changed generations. No automatic reconnect or write replay.
+- Pending/uncertain source and language are retained as one copyable, discardable
+  memory-only backup before recovery replaces the editor. Failure retains local
+  text; another explicit attempt is allowed. Navigation/logout/expiry discards
+  the page. Existing last-write-wins semantics and 24-hour inactivity TTL remain.
+- Existing backend storage and security behavior required no production changes.
+  Added five real-container integration cases, eight client unit cases, one
+  browser case, and extended two existing browser cases.
+
+| Acceptance criterion | Verified evidence |
+| --- | --- |
+| Latest state restored on join/reconnect | Real WebSocket reconnect restores content/language/version; two-browser recovery observes another member's accepted edits and resumes deliberate writes |
+| Version/generation safety | Stale generations are rejected; client tests cover snapshot/reset races, retired frames, old callbacks, and a version floor across reconnects |
+| Redis inactivity lifetime | Real Redis tests use a three-second configured TTL and controlled short expiry; snapshots/accepted edits refresh it, heartbeats do not |
+| Explicit reset after expiry/loss | Integration tests cover expiry and concurrent initialization; browser test deletes only its isolated document and verifies the reset notification |
+| Dependency failure and authorization | Real Redis pause/recovery, membership revocation on reconnect, existing PostgreSQL loss/JWT expiry tests, and visible browser failure with preserved backup |
+| No blind replay | Unit/browser checks verify pending and uncertain drafts stay local, recovery waits for a snapshot, and only deliberate new edits publish |
+
+Checks run:
+
+- `mvnw.cmd --batch-mode --no-transfer-progress verify`: **194 tests passed**
+  (41 backend unit, 142 backend integration including 29 collaboration, 11 worker
+  integration); zero failures, errors, or skips. Docker was required and available.
+- Frontend clean install, lint, typecheck, production build, and **54 unit/component
+  tests** pass. **Nine production-browser tests** pass with retries disabled.
+- An immediate mobile-width assertion exposed a ResizeObserver timing race.
+  It now waits for the same required layout condition. The full suite and three
+  additional runs of the affected recovery case pass; no unresolved flakiness.
+- Repaired the known Linux CI credential-fixture cleanup prerequisite: remove
+  hidden `.env` fixtures with `-Force`. Both credential scripts pass on Windows
+  and Linux PowerShell; Linux verification mounted only seven inspected helper/
+  test files, not the repository or its secrets. No workflow/technology expansion.
+- `git diff --check` passes. The existing Monaco chunk-size advisory remains.
+  No required local check is failing, skipped, or unverified. GitHub Actions for
+  these uncommitted changes remains unverified until a later authorized push.
+
+Scope: no new dependencies, migrations, backend production behavior, worker jobs,
+execution submissions, durable checkpoints, or automatic retries. Run remains
+disabled. All Milestone 7 acceptance criteria pass; stop before Milestone 8.
+
+### Review verification (2026-09-17)
+
+- Re-read AGENTS, specification, architecture, and milestone acceptance criteria;
+  reviewed all thirteen changed files and the existing Redis/security request path.
+  Every acceptance criterion in the table above passes again. No application-code
+  correction was required, and no unnecessary abstraction, dead code, security
+  regression, or future-milestone feature was identified in the reviewed changes.
+- Clean Maven `clean verify`: **194 tests**, zero failures/errors/skips. Real
+  PostgreSQL, Redis, and RabbitMQ containers were required and available.
+- Frontend clean install, lint, typecheck, **54 tests**, production build, and
+  **nine browser tests** pass on Node **24.19.0**. Three further runs of the mobile
+  reconnect/backup case pass with retries disabled; no flakiness reproduced.
+  The default terminal had Node 26 and produced an engine warning on the first
+  install; verification was repeated with an isolated Node 24 runtime, without
+  changing the global installation. Dependency audit reports zero vulnerabilities.
+- Credential checks pass on Windows and isolated Linux PowerShell; Actionlint
+  and `git diff --check` pass. The existing Monaco bundle-size advisory remains.
+- Inspected the current [GitHub Actions run](https://github.com/Ywrd10/PairForge/actions/runs/35165402635)
+  for Milestone 6 commit `b08b72c`: the frontend job passed, while the Java job
+  failed in credential-fixture cleanup and **skipped** its backend/worker test
+  step. Hidden `.env` was left behind, causing an interactive directory-removal
+  prompt. The two local `-Force` cleanup fixes pass on Linux but are not pushed.
+  Remote CI remains a verification gap until an authorized commit/push includes
+  these fixes and the resulting workflow passes; this review does not claim
+  remote verification of Milestone 7.
+- Changes remain uncommitted. Milestone 7 remains DONE on its verified local
+  acceptance criteria; Milestone 8 remains TODO. Only review documentation was
+  updated during this review.
 
 ---
 
