@@ -170,6 +170,16 @@ and publish can strand a QUEUED execution; confirmation loss can make dispatch
 uncertain. The API exposes the execution ID and authoritative status so the UI
 does not blindly resubmit an uncertain request. See Architecture §9 for handling.
 
+Milestone 8 exposes member-authorized submission, paginated room history, and
+execution detail REST endpoints. Source and language are the only submission
+fields. The API validates encoding/size and the supported language without
+compiling or executing code. Defaults are 10 valid authorized attempts per user
+per 60-second fixed window and 100 global outstanding QUEUED/RUNNING executions.
+Admission fails closed on dependency loss. A new HTTP POST is a new execution;
+clients inspect a returned ID or recent history before retrying an uncertain
+submission. Consumption, runtime execution, Run UI, and execution events remain
+in their later roadmap milestones.
+
 The client should receive execution-state changes in real time.
 
 Committed changes travel through RabbitMQ `execution.events` to the API and then

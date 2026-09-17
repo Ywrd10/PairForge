@@ -9,8 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 7 (DONE). Collaboration recovery and Redis lifetime
-acceptance checks pass. Milestone 8 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 8 (DONE). Execution submission, confirmed dispatch,
+admission, and failure-recovery acceptance checks pass locally. Milestone 9 remains
+TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -914,7 +915,7 @@ disabled. All Milestone 7 acceptance criteria pass; stop before Milestone 8.
 
 ## Milestone 8 — Execution Submission
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -942,6 +943,81 @@ failure-status persistence failure, validation, authorization, and admission lim
 Document/test the remaining crash-after-commit/before-publish window and the
 operator procedure for abandoned QUEUED jobs. No transactional outbox or guaranteed
 background redispatch is required or implemented in the initial MVP.
+
+### Verification (2026-09-17)
+
+- Added member-authorized submission, paginated history, and detail endpoints.
+  Strict source/language input, 64 KiB UTF-8 source and bounded JSON bodies,
+  immutable snapshots, no-store responses, and concealed unauthorized reads pass.
+- PostgreSQL commits QUEUED before persistent ID-only publication to the durable
+  RabbitMQ queue. Mandatory routing, correlated confirms, bounded same-ID retries,
+  and conditional dispatch-failure updates pass. No database transaction or
+  admission lock spans broker I/O.
+- Redis per-user limits/expiry and concurrent global outstanding-work admission
+  pass. Redis/PostgreSQL loss fails closed; RabbitMQ nack, unroutable return,
+  confirm timeout, and outage produce the documented durable or unknown outcome.
+  Tests verify failure-persistence/status-read outages and preservation of a
+  concurrent RUNNING or terminal state.
+- Seven new publisher unit tests and 26 execution integration tests pass. A
+  controlled interruption after commit demonstrates the remaining dual-write
+  gap, and the conditional operator recovery SQL is tested and documented in
+  Architecture §9. This is a simulated interruption, not an actual process kill.
+- Full Maven `verify`: **227 tests** (48 unit, 168 API integration, 11 worker
+  integration), zero failures, errors, or skips; real PostgreSQL, Redis, and
+  RabbitMQ containers. Docker's recurring inaccessible runtime sockets were
+  backed up/recreated before verification; application data was preserved.
+- Node 24 clean install, lint, typecheck, **54 frontend tests**, production build,
+  and **nine browser acceptance tests** pass. Dependency audit reports zero
+  vulnerabilities. Both credential-script checks and `git diff --check` pass.
+- The first full run exposed an obsolete RoomIT assertion that the previously
+  unimplemented execution endpoint was forbidden. It now checks invalid-body
+  rejection and retains denial of unknown routes; the full rerun passes. The
+  existing Monaco bundle-size advisory remains; no required local check is skipped.
+- No schema migration, new dependency, worker consumer, sandbox runner, execution
+  events, or Run UI was added. Single-instance API admission and the documented
+  crash window remain approved MVP limitations. Milestone 9 has not begun.
+- At implementation verification, changes were uncommitted and remote GitHub
+  Actions was **unverified for M8**. The
+  passing Milestone 7 workflow is not evidence for these changes. The existing
+  workflow will include these tests on a subsequent authorized push.
+
+### Review verification (2026-09-17)
+
+- Re-read AGENTS, the execution product/architecture contracts, and M8/M9 scope.
+  Reviewed submission, admission, persistence, publisher/topology, authorization,
+  body bounds, error responses, configuration, and tests. M8 remains **DONE**;
+  every local acceptance criterion passes and M9 remains TODO.
+- Fixed one confirmed defect: Spring-generated negative confirms on channel
+  shutdown were classified as definite dispatch failures. A regression test first
+  reproduced the error; the publisher now preserves DISPATCH_UNCONFIRMED for a
+  local nack without a mandatory return, even when a later retry gets a broker
+  nack. Real broker negative confirms still produce DISPATCH_FAILED.
+- Added real RabbitMQ stop/start durability verification and concurrent Redis
+  per-user admission verification. Removed a potential timing race in the quota
+  test: it uses a 60-second window, verifies rejection does not extend TTL, then
+  shortens the test key's TTL to exercise real expiry without racing HTTP calls.
+- Acceptance evidence: one committed immutable row and a confirmed persistent
+  ID-only job; same-ID publication retries; validation/membership/history bounds;
+  per-user/global admission; real nack/return/broker outage and simulated confirm
+  timeout; failed failure-state persistence/status-read recovery; conditional
+  protection of RUNNING/terminal rows; simulated commit-before-publish interruption
+  and the documented conditional operator procedure all pass.
+- Java 21 root `clean verify`: **230 tests** (49 unit, 170 API integration, 11
+  worker integration), zero failures/errors/skips. Node 24 clean install, lint,
+  typecheck, **54 frontend tests**, production build, and **nine browser tests**
+  pass. Credential-script checks and whitespace checks pass; npm reports zero
+  vulnerabilities. No flaky test was observed in this review run. The new defect
+  regression intentionally failed before the fix and passed afterward.
+- Docker startup again encountered inaccessible runtime sockets. The inspected
+  socket directories were backed up/recreated, preserving application data, and
+  real-container tests ran successfully. This recurring Desktop issue is an
+  environment limitation; no required test was silently skipped.
+- No further blocking security, error-handling, dead-code, or complexity issue
+  was found within M8. No worker consumer/runner, execution events, frontend Run
+  action, migration, dependency, or future-milestone feature was introduced.
+- Existing limitations remain: single-API admission, the approved dual-write
+  crash window with manual recovery, and the Monaco bundle-size build advisory.
+  At review time changes were uncommitted/unpushed; GitHub Actions was unverified for M8.
 
 ---
 

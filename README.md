@@ -2,17 +2,19 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 7 collaboration recovery** on the authentication and room
+contains **Milestone 8 execution submission** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
-last-write-wins. The worker remains a foundation; code execution is not enabled.
+last-write-wins. Authorized execution submissions are persisted and queued with
+confirmed RabbitMQ publication. The worker remains a foundation; code execution
+and the browser Run action are not enabled.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Modular-monolith API; authentication, rooms, WebSocket collaboration, health, migrations, repositories |
+| `backend/` | Modular-monolith API; authentication, rooms, collaboration, execution submission/history, health, persistence |
 | `execution-worker/` | Independent worker process; currently operational health only |
 | `frontend/` | React + TypeScript + Vite authentication, room workflows, and shared Monaco editing |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
@@ -23,8 +25,8 @@ last-write-wins. The worker remains a foundation; code execution is not enabled.
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. Queue producers/consumers and execution
-paths remain for later milestones. No Docker socket is mounted into an application.
+references. The API produces execution jobs; consumers and sandbox execution
+remain for later milestones. No Docker socket is mounted into an application.
 
 The browser loads the React application, logs in through the API, and holds its
 access token in memory. Protected requests send a bearer header; the API validates
@@ -198,7 +200,10 @@ JWT and CORS failures, Redis limit concurrency/expiry, dependency failure/recove
 and stateless access. Tests use BCrypt cost 4; runtime defaults to 12.
 Room tests cover three-user admission, automatic owner membership, concurrent
 joins, rollback, authorization, bounded input/pagination, secret disclosure, and
-dependency failure/recovery. Execution state transitions remain future work.
+dependency failure/recovery. Execution tests cover confirmed persistent dispatch,
+strict input/byte bounds, membership, history, admission concurrency, Redis loss,
+real RabbitMQ nack/return/outage, PostgreSQL loss, conditional dispatch failures,
+and the documented commit-to-publication gap. Worker transitions remain future work.
 
 ```powershell
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
@@ -242,6 +247,41 @@ It leaves three uniquely named accounts and one room, consumes three registratio
 attempts, and prints no passwords, JWTs, or invitation tokens. Both smoke scripts
 are subject to the default five-registrations-per-IP/hour limit; a 429 requires
 waiting for the window, not bypassing the admission controls.
+
+## Execution API (Milestone 8)
+
+All endpoints require a bearer token and room membership:
+
+| Method/path | Result |
+| --- | --- |
+| `POST /api/rooms/{roomId}/executions` | Persist source/language snapshot and confirm job publication; 202 receipt + Location |
+| `GET /api/rooms/{roomId}/executions?page=0&size=20` | Bounded summaries, newest first; size 1–100 |
+| `GET /api/executions/{executionId}` | Durable snapshot, status, revision, and result fields |
+
+POST body: `{"source":"print('hello')","language":"PYTHON"}`; Java uses `JAVA`.
+The contract is a single `main.py` or `Main.java`, standard libraries only,
+closed stdin, no package installation/network. Maximum source is 65,536 UTF-8
+bytes; maximum JSON body is 400,000 bytes. Syntax errors are left to the future
+sandbox. This milestone never runs submitted code.
+
+Defaults: 10 valid authorized attempts/user/60-second fixed window, 100 global
+outstanding executions, two publication attempts with a two-second confirm wait
+each. Attempts are charged before capacity admission and are not refunded.
+429 supplies Retry-After; capacity exhaustion returns 503 with Retry-After.
+Configuration is documented in [Architecture §9](docs/ARCHITECTURE.md#9-execution-request-flow).
+
+The API commits PostgreSQL before publishing persistent ID-only messages to the
+durable `execution.jobs` queue via `pairforge.execution`. Only internal publish
+retries reuse an execution ID. Dispatch failure/uncertainty returns 503 with its
+ID and either recorded FAILED status or `outcomeUnknown: true` if persistence
+cannot be verified. Inspect Location or recent room history before any new POST.
+A worker claim/completion wins over an attempted dispatch-failure update.
+
+The approved dual-write crash window remains: committed QUEUED work can be
+stranded before publication. See the [operator procedure](docs/ARCHITECTURE.md#operator-procedure-for-abandoned-queued-submissions).
+There is no outbox or automatic redispatch. With no worker consumer in M8,
+successful jobs normally remain QUEUED and consume capacity. Do not scale beyond
+one API instance without replacing the documented in-process admission lock.
 
 ## Room API
 
@@ -400,6 +440,22 @@ failure artifacts are ignored by Git and are not uploaded by CI.
 
 ## Shutdown and troubleshooting
 
+### Milestone 8 review verification (2026-09-17)
+
+Milestone 8 remains DONE. Review corrected the classification of Spring-generated
+negative confirms after channel loss: uncertain delivery remains
+DISPATCH_UNCONFIRMED. Tests also verify persistent jobs survive a RabbitMQ restart
+and concurrent per-user admission cannot exceed its Redis quota.
+
+Java 21 clean verification passes 230 tests with no failures or skips. Node 24
+clean install, lint, typecheck, 54 frontend tests, build, nine browser tests,
+credential-script tests, and whitespace checks pass; npm reports zero
+vulnerabilities. The existing Monaco bundle-size advisory remains. Docker's
+recurring stale runtime sockets were backed up/recreated for real-container tests.
+
+At review time M8 changes were uncommitted/unpushed and remote CI was unverified. The documented
+dual-write limitation and single-instance API admission remain; M9 has not begun.
+
 ### Milestone 7 review verification (2026-09-17)
 
 Milestone 7 remains DONE after reviewing all acceptance criteria and the recovery,
@@ -410,12 +466,11 @@ dependency audit (zero vulnerabilities), Windows/Linux credential checks,
 Actionlint, and whitespace checks pass. No application-code correction was needed.
 The existing Monaco bundle-size advisory remains.
 
-The latest [remote CI run](https://github.com/Ywrd10/PairForge/actions/runs/35165402635)
-tests Milestone 6 commit `b08b72c`: frontend passed, but credential-fixture cleanup
-failed on Linux and prevented backend/worker tests from running. The hidden `.env`
-cleanup fixes are locally verified on Linux and remain unpushed with Milestone 7.
-Remote CI is still unverified for these changes; a subsequent authorized push and
-passing workflow are needed. Milestone 8 has not begun.
+The earlier [Milestone 6 CI run](https://github.com/Ywrd10/PairForge/actions/runs/35165402635)
+failed during Linux credential-fixture cleanup. The hidden `.env` cleanup fixes
+were subsequently pushed with Milestone 7 commit `6d963bd`, and both jobs passed
+in [run 35224731699](https://github.com/Ywrd10/PairForge/actions/runs/35224731699).
+That passing run is evidence for Milestone 7, not the uncommitted M8 changes.
 
 ### Milestone 6 review verification (2026-09-16)
 
@@ -636,5 +691,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 8. The planned execution architecture retains the documented
+Milestone 9. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

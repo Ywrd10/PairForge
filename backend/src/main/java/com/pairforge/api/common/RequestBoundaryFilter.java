@@ -20,7 +20,9 @@ public class RequestBoundaryFilter extends OncePerRequestFilter {
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                              FilterChain chain) throws ServletException, IOException {
-        boolean boundedBody = request.getMethod().equals("POST") &&
+        boolean execution = request.getMethod().equals("POST") && request.getServletPath().matches("/api/rooms/[^/]+/executions");
+        int limit = execution ? 400000 : MAX_JSON_BYTES;
+        boolean boundedBody = execution || request.getMethod().equals("POST") &&
                 (request.getServletPath().equals("/api/auth/login")
                         || request.getServletPath().equals("/api/auth/register")
                         || request.getServletPath().equals("/api/rooms")
@@ -40,13 +42,13 @@ public class RequestBoundaryFilter extends OncePerRequestFilter {
             errors.write(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Content-Type must be application/json");
             return;
         }
-        if (request.getContentLengthLong() > MAX_JSON_BYTES) {
-            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to 4096 bytes");
+        if (request.getContentLengthLong() > limit) {
+            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to " + limit + " bytes");
             return;
         }
-        byte[] body = request.getInputStream().readNBytes(MAX_JSON_BYTES + 1);
-        if (body.length > MAX_JSON_BYTES) {
-            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to 4096 bytes");
+        byte[] body = request.getInputStream().readNBytes(limit + 1);
+        if (body.length > limit) {
+            errors.write(response, 413, "REQUEST_TOO_LARGE", "Request body is limited to " + limit + " bytes");
             return;
         }
         chain.doFilter(new HttpServletRequestWrapper(request) {

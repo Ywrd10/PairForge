@@ -23,6 +23,12 @@ public class ApiExceptionHandler {
     private final ApiErrors errors;
     public ApiExceptionHandler(ApiErrors errors) { this.errors = errors; }
 
+    @ExceptionHandler(com.pairforge.api.execution.ExecutionDispatchException.class)
+    void dispatch(com.pairforge.api.execution.ExecutionDispatchException error, HttpServletResponse response) throws IOException {
+        LOG.warn("Execution dispatch recovery executionId={} status={} requestId={}", error.executionId(), error.status(), response.getHeader("X-Request-ID"));
+        errors.dispatch(response, error);
+    }
+
     @ExceptionHandler(ApiException.class)
     void api(ApiException error, HttpServletResponse response) throws IOException {
         if (error.status() >= 500) LOG.warn("Dependency failure code={} requestId={}",

@@ -243,7 +243,8 @@ class RoomIT {
         var forgedOwner = createBody("Room").replace("}", ",\"ownerId\":\"" + UUID.randomUUID() + "\"}");
         var response = request("POST", "/api/rooms", forgedOwner, owner.token());
         assertThat(json.readTree(response.body()).at("/room/ownerId").asText()).isEqualTo(owner.id().toString());
-        error(request("POST", path(created) + "/executions", "{}", owner.token()), 403, "FORBIDDEN");
+        error(request("POST", path(created) + "/executions", "{}", owner.token()), 400, "INVALID_INPUT");
+        error(request("POST", path(created) + "/unsupported", "{}", owner.token()), 403, "FORBIDDEN");
     }
 
     @Test void expiredBearerTokensCannotReadOrMutateRooms() throws Exception {

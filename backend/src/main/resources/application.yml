@@ -39,6 +39,14 @@ spring:
     requested-heartbeat: 5s
     channel-rpc-timeout: 2s
     dynamic: false
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    cache:
+      channel:
+        size: 5
+        checkout-timeout: 2s
   data:
     redis:
       host: ${REDIS_HOST}

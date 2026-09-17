@@ -857,6 +857,111 @@ QUEUED rows and conditionally fail abandoned work before a user resubmits.
 Restarting the API alone does not guarantee recovery of such jobs. Transactional
 outbox is future work, not a requirement for milestone acceptance.
 
+### Milestone 8 submission contract
+
+`POST /api/rooms/{roomId}/executions` accepts exactly
+`{"source":"...","language":"JAVA"}` (or `PYTHON`). Identity comes from the JWT;
+room membership is checked before admission and again in the insert transaction.
+Unknown fields, non-string values, NUL, and malformed Unicode are rejected.
+Source is limited to 65,536 UTF-8 bytes, independently of the 400,000-byte JSON
+transport limit (which permits JSON escaping); both fixed-length and chunked
+bodies are bounded. Other authentication/room JSON limits remain 4,096 bytes.
+Empty source and syntax/entry-point errors are left to the future sandbox.
+The API never compiles or interprets source. Filenames are determined by language,
+not accepted from clients. No Redis document read changes the submitted snapshot.
+
+Confirmed dispatch returns 202 with `executionId`, `status`, `stateRevision`,
+`failureReason`, and a `Location: /api/executions/{executionId}` header. A durable
+dispatch failure returns 503 with the standard error fields plus `executionId`,
+`status`, `failureReason`, and `outcomeUnknown: false`. Persistence/read uncertainty
+returns 503 with code `EXECUTION_OUTCOME_UNKNOWN`, the attempted ID, null status
+and reason, and `outcomeUnknown: true`. An insert/commit failure can mean that ID
+has no row; inspect it and recent history after recovery. The API never asserts
+that an unconfirmed message was not delivered. Repeating the HTTP POST creates a
+new logical execution; only internal publication retries reuse the original ID.
+
+`GET /api/rooms/{roomId}/executions?page=0&size=20` returns
+`{items,page,size,hasNext}`, ordered by `createdAt DESC, id DESC`; size is 1–100.
+Summaries contain IDs, language, status, revision, failure reason, and creation/
+completion times, but no source or output. `GET /api/executions/{executionId}`
+returns the durable snapshot and result fields. Both require current membership;
+missing and inaccessible executions return the same 404. Responses are no-store.
+
+Admission uses an atomic Redis fixed window per user, beginning with the first
+valid authorized attempt. Rejections do not extend its TTL. Authorized attempts
+are charged before global admission and are not refunded for capacity or dispatch
+failures. Redis loss fails closed. A bounded in-process lock covers PostgreSQL
+outstanding count, insert, and commit, never broker I/O. QUEUED and RUNNING rows
+count toward capacity. This is deliberately a **single API instance** design;
+multiple instances require a shared admission transaction/lock before scaling.
+
+Configuration under `pairforge.execution` (Spring environment overrides supported):
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `user-limit` | 10 | Valid authorized attempts per user/window |
+| `window-seconds` | 60 | Redis fixed-window lifetime |
+| `max-outstanding` | 100 | Global QUEUED + RUNNING rows |
+| `admission-wait-ms` | 100 | Maximum wait for local admission lock |
+| `source-bytes` | 65536 | Source UTF-8 budget; cannot exceed schema bound |
+| `publish-attempts` | 2 | Same-ID publish attempts, maximum 3 |
+| `confirm-timeout-ms` | 2000 | Confirm wait per attempt, maximum 10000 |
+| `retry-backoff-ms` | 100 | Pause between attempts, maximum 1000 |
+
+The API declares a durable direct exchange `pairforge.execution`, durable queue
+`execution.jobs`, and binding with routing key `execution.jobs`. Messages are
+persistent, have content type `application/json`, and contain only schema version
+and execution ID. The stable AMQP message ID is that execution ID; each publish
+attempt has a separate confirm correlation ID. Positive confirmation succeeds
+only when no mandatory return accompanied it. Connection/handshake, channel
+checkout, NIO write enqueue, and confirm waits are bounded; earlier uncertainty
+survives a later failed retry. Failure counters use bounded reason labels, and
+recovery logs contain IDs rather than source or credentials. An API RabbitAdmin
+declares/redeclares topology on connection; the worker still has no consumer.
+
+A broker `basic.nack` has no reason string in the correlated confirm. Spring's
+locally generated negative confirmations include a reason (for example after
+channel shutdown); without a mandatory return these are classified as
+DISPATCH_UNCONFIRMED, because the message may already have reached the queue.
+
+### Operator procedure for abandoned QUEUED submissions
+
+1. Restore PostgreSQL/RabbitMQ connectivity and inspect age, recent dispatch logs,
+   and queue/consumer health. Age alone is not proof that publication failed; a
+   legitimately queued backlog is possible. In Milestone 8 no consumer exists,
+   so successfully submitted work normally remains QUEUED.
+2. Select specific IDs for investigation, without dumping submitted source:
+
+   ```sql
+   SELECT id, room_id, status, created_at, state_revision
+   FROM executions
+   WHERE status = 'QUEUED' AND created_at < now() - interval '15 minutes'
+   ORDER BY created_at;
+   ```
+
+3. For an individually confirmed abandoned ID, use the operator database role
+   (not a public API) and a conditional update. Replace the placeholder UUID:
+
+   ```sql
+   UPDATE executions
+   SET status = 'FAILED', failure_reason = 'DISPATCH_FAILED',
+       completed_at = greatest(clock_timestamp(), created_at),
+       state_revision = state_revision + 1
+   WHERE id = '<reviewed-execution-uuid>'::uuid AND status = 'QUEUED'
+   RETURNING id, status, state_revision;
+   ```
+
+4. If zero rows changed, re-read the current status: a claim/completion may have
+   won the race. Do not overwrite it. Only after verifying the old execution's
+   durable terminal state should the user deliberately submit a new execution.
+   Delayed/duplicate deliveries must skip terminal rows in the Milestone 9 worker.
+   Do not mass-fail work solely by age or blindly republish/repeat POST requests.
+
+Tests simulate interruption immediately after commit, verify the stranded row and
+absent message, and exercise this conditional update. This demonstrates the gap;
+it does not provide automatic recovery or claim a real process-kill test. Outbox,
+guaranteed redispatch, worker consumption, and execution events are outside M8.
+
 ---
 
 ## 10. Execution Job

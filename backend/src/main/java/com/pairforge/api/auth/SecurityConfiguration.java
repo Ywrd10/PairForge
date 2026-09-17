@@ -23,7 +23,7 @@ public class SecurityConfiguration {
         corsConfig.setAllowedOrigins(properties.allowedOrigins());
         corsConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
         corsConfig.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        corsConfig.setExposedHeaders(List.of("X-Request-ID", "Retry-After"));
+        corsConfig.setExposedHeaders(List.of("X-Request-ID", "Retry-After", "Location"));
         corsConfig.setAllowCredentials(false);
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", corsConfig);
@@ -52,6 +52,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/rooms", "/api/rooms/{roomId}").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/rooms", "/api/rooms/{roomId}/join").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/rooms/{roomId}/executions").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/rooms/{roomId}/executions", "/api/executions/{executionId}").authenticated()
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, error) -> {
