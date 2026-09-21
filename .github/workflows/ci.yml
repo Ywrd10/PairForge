@@ -40,6 +40,7 @@ jobs:
           path: |
             backend/target/surefire-reports/
             backend/target/failsafe-reports/
+            execution-worker/target/surefire-reports/
             execution-worker/target/failsafe-reports/
           if-no-files-found: warn
 

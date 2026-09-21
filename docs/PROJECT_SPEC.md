@@ -177,8 +177,10 @@ compiling or executing code. Defaults are 10 valid authorized attempts per user
 per 60-second fixed window and 100 global outstanding QUEUED/RUNNING executions.
 Admission fails closed on dependency loss. A new HTTP POST is a new execution;
 clients inspect a returned ID or recent history before retrying an uncertain
-submission. Consumption, runtime execution, Run UI, and execution events remain
-in their later roadmap milestones.
+submission. Milestone 9 adds the worker's claim, result-persistence, and recovery
+path, verified with test-only fake runners. Runtime consumption remains disabled
+until the Milestone 10 sandbox exists; enabling it without a real runner fails
+startup. Run UI and execution events remain in Milestone 11.
 
 The client should receive execution-state changes in real time.
 

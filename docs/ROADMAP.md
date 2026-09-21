@@ -9,8 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 8 (DONE). Execution submission, confirmed dispatch,
-admission, and failure-recovery acceptance checks pass locally. Milestone 9 remains
+Current milestone: Milestone 9 (DONE). Worker claims, result persistence,
+acknowledgements, and failure-recovery acceptance checks pass locally with
+test-only fake runners; runtime consumption remains disabled. Milestone 10 remains
 TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
@@ -1023,7 +1024,7 @@ background redispatch is required or implemented in the initial MVP.
 
 ## Milestone 9 — Execution Worker
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1049,6 +1050,83 @@ Duplicates before/during/after completion do not invoke the runner again.
 
 Crash/redelivery and failed result-persistence paths are tested. Runtime
 execution stays disabled until Milestone 10; no host-process fallback is allowed.
+
+### Verification (2026-09-17)
+
+| Acceptance criterion | Evidence |
+| --- | --- |
+| QUEUED reaches terminal using a test-only fake | Real PostgreSQL/RabbitMQ test verifies atomic RUNNING claim, immutable snapshot, revision increments, saved output, and terminal result |
+| No duplicate rerun | Duplicates before/during/after completion, every terminal status, RUNNING duplicates, eight concurrent claims, and stale final writes are tested |
+| Manual acknowledgement and bounded consumption | One consumer/prefetch one verified against the broker; malformed/missing jobs rejected without requeue; result failures retain unacknowledged work for redelivery |
+| Crash/redelivery safety | Separate test JVM forcibly killed during fake execution and after committed result before ack; actual redelivery recovers interruption or preserves terminal output without rerunning |
+| Failed result persistence | Three-attempt retained-result unit tests, definite denied writes, real PostgreSQL pause, uncertain commit responses, and restart recovery pass; timeout is not mistaken for proof of rollback |
+| Failure/readiness handling | Database and broker loss latch consumption off; dependency restoration does not resume it; liveness stays healthy; active timeout, failed/hanging cleanup, and failed startup cleanup are tested |
+| Runtime disabled and no host fallback | Packaged worker fails startup when enabled without a runner; fake runners and Flyway absent from runtime JAR; ordinary disabled startup/health checks pass |
+
+- Added worker-local JDBC persistence, runner/result contracts, bounded processing,
+  manual-ack consumer, and startup recovery. Three infrastructure attempts with
+  backoff, one consumer/prefetch, and operator restart after exhaustion implement
+  the approved plan without retry tables, automatic requeue loops, or an outbox.
+- Repeatable worker provisioning grants execution SELECT and only lifecycle/result
+  column UPDATE after API migrations. Tests prove source/language/room changes,
+  INSERT/DELETE, account/membership access, and schema writes remain denied. The
+  API still owns migrations; worker Flyway dependencies are test-scoped only.
+- Documented configuration and predecessor-stop attestation, cleanup-before-final
+  persistence, ambiguous outcomes, manual recovery, and the possible loss of an
+  unsaved result. Attestation is not fencing; overlapping workers remain unsupported.
+- Java 21 root `clean verify`: **267 tests** (69 unit, 170 API integration, 28
+  worker integration), zero failures/errors/skips. After a final test-only
+  refinement for ambiguous database commits, worker `verify` passes again:
+  **48 tests**, including 17 new execution integration tests. Docker was required
+  and available. M9 adds 37 tests overall.
+- Node 24.19.0 clean install, lint, typecheck, **54 frontend tests**, production
+  build, and **nine browser tests** pass. Credential initialization/isolation
+  checks, Actionlint, and whitespace checks pass. npm audit reports zero
+  vulnerabilities; the existing Monaco bundle-size advisory remains.
+- Initial worker verification exposed test-classpath Flyway auto-configuration;
+  worker migrations are now explicitly disabled. An outage assertion incorrectly
+  assumed timeout implied rollback; tests now verify both legitimate commit
+  outcomes and separately prove definite write failure. Final checks pass, with
+  no required local check skipped or outstanding failure.
+- No runtime dependency, migration, sandbox implementation/socket, execution
+  events, frontend behavior, or host-process execution was added. M10 has not
+  begun. Changes are uncommitted/unpushed; GitHub Actions is **unverified for M9**
+  until a separately authorized push. No remote CI result is claimed here.
+
+### Review verification (2026-09-21)
+
+- Re-read AGENTS, the specification, architecture, and M9/M10 requirements.
+  Reviewed every M9 production/test/configuration/provisioning change. All
+  acceptance criteria in the table above pass again; M9 remains **DONE**.
+- Fixed a deadline defect: the worker previously trusted only PostgreSQL's
+  absolute deadline, so database/worker clock skew could extend the configured
+  execution budget. A regression test reproduced the defect before the fix.
+  The worker now also enforces a local monotonic budget beginning at the first
+  claim attempt. Three tests cover future database time, slow claims consuming
+  the budget, and expired durable deadlines; cleanup still precedes final writes.
+- Java 21 root `clean verify`: **270 tests** (72 unit, 170 API integration, 28
+  worker integration), zero failures/errors/skips. Real claims, duplicate delivery,
+  invalid messages, failed/uncertain persistence, database/broker loss, cleanup
+  failure, readiness latching, and both actual child-process kill cases pass.
+- Node 24.19.0 clean install, lint, typecheck, **54 frontend tests**, production
+  build, and **nine browser tests** pass with browser retries disabled. Credential
+  scripts, Actionlint, and whitespace checks pass. npm reports zero vulnerabilities;
+  the existing Monaco bundle-size advisory remains. No flaky test was observed.
+- Rebuilt runtime JAR excludes fake runners and Flyway and rejects startup when
+  consumption is enabled without a runner. Default disabled health/startup and
+  restricted database permission tests pass. No source is executed on the host.
+- Docker initially failed on stale inference/secrets-engine sockets. Backed up
+  and recreated only the inspected runtime socket directories, preserving images,
+  volumes, and VM data; Docker 29.4.3 then passed the required container tests.
+  This restores this run and does not claim a permanent Docker Desktop repair.
+- No further blocking security, error-handling, complexity, dead-code, or
+  architectural-drift issue was found within M9. The single-worker/predecessor-stop
+  requirement, possible loss of unsaved results, and approved dual-write gap remain
+  documented limitations. No sandbox, execution events, or later milestone began.
+- This review changes only ExecutionProcessor, its unit tests, Architecture, and
+  this verification record. No required local check remains failing, skipped, or
+  unverified. Changes remain uncommitted/unpushed; remote GitHub Actions for M9
+  remains **unverified** until a separately authorized push.
 
 ---
 

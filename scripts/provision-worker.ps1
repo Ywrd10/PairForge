@@ -44,5 +44,5 @@ try {
     $sql = $sql.Replace('\getenv worker_password WORKER_DB_PASSWORD', "\set worker_password '$quotedPassword'")
     $sql | & docker compose exec -T postgres psql --quiet -U $adminUser -d $database
     if ($LASTEXITCODE -ne 0) { throw 'Worker role provisioning failed.' }
-    Write-Host 'Worker database role provisioned with health-only access.'
+    Write-Host 'Worker role provisioned; execution access is granted only when the API schema exists.'
 } finally { Pop-Location }

@@ -237,12 +237,13 @@ class PersistenceIT {
              var statement = connection.createStatement()) {
             assertThat(connection.isValid(2)).isTrue();
             for (String sql : java.util.List.of("SELECT password_hash FROM users",
-                    "SELECT * FROM executions", "UPDATE room_members SET joined_at = now()",
+                    "UPDATE executions SET source_code = 'forbidden'", "DELETE FROM executions", "UPDATE room_members SET joined_at = now()",
                     "CREATE TABLE forbidden (id int)", "CREATE SCHEMA forbidden",
                     "CREATE TEMP TABLE forbidden_temp (id int)")) {
                 assertThatThrownBy(() -> statement.execute(sql)).isInstanceOf(SQLException.class)
                         .satisfies(error -> assertThat(((SQLException) error).getSQLState()).isEqualTo("42501"));
             }
+            assertThat(statement.executeQuery("SELECT * FROM executions").getMetaData().getColumnCount()).isPositive();
         }
     }
 

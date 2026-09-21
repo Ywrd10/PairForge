@@ -36,6 +36,12 @@ SELECT format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
               table_schema, table_name, :'worker_user')
 FROM information_schema.columns WHERE table_schema = 'public'
 GROUP BY table_schema, table_name \gexec
+-- Re-run after API migrations. Provisioning an empty database remains health-only.
+SELECT to_regclass('public.executions') IS NOT NULL AS has_executions \gset
+\if :has_executions
+GRANT SELECT ON executions TO :"worker_user";
+GRANT UPDATE (status, stdout, stderr, exit_code, duration_ms, started_at, completed_at,
+              deadline_at, state_revision, failure_reason, output_truncated)
+ON executions TO :"worker_user";
+\endif
 COMMIT;
--- Milestone 1 requires health connectivity only. Execution privileges arrive
--- with the worker repository, and must never include users or room membership.

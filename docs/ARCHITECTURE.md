@@ -210,8 +210,11 @@ Milestone 1 persistence decisions:
   Milestone 1, with no table access, DDL, or temporary-table permission. The
   provisioning step revokes both table and column grants and refuses roles with
   existing object ownership or membership in other roles. The
-  worker neither migrates nor imports the API module. Grant narrowly scoped
-  execution permissions when its persistence path is implemented in Milestone 9.
+  worker neither migrates nor imports the API module. Since Milestone 9,
+  re-provisioning after API migrations grants SELECT on executions and UPDATE
+  only on status/result/timing/revision columns. Snapshot, identity, room, and
+  creation fields remain immutable to the worker; INSERT/DELETE, account and
+  membership access, DDL, and temporary tables remain denied.
 
 ---
 
@@ -917,7 +920,8 @@ only when no mandatory return accompanied it. Connection/handshake, channel
 checkout, NIO write enqueue, and confirm waits are bounded; earlier uncertainty
 survives a later failed retry. Failure counters use bounded reason labels, and
 recovery logs contain IDs rather than source or credentials. An API RabbitAdmin
-declares/redeclares topology on connection; the worker still has no consumer.
+declares/redeclares topology on connection. The Milestone 9 consumer uses this
+existing topology and never declares it; runtime consumption is disabled until M10.
 
 A broker `basic.nack` has no reason string in the correlated confirm. Spring's
 locally generated negative confirmations include a reason (for example after
@@ -928,8 +932,8 @@ DISPATCH_UNCONFIRMED, because the message may already have reached the queue.
 
 1. Restore PostgreSQL/RabbitMQ connectivity and inspect age, recent dispatch logs,
    and queue/consumer health. Age alone is not proof that publication failed; a
-   legitimately queued backlog is possible. In Milestone 8 no consumer exists,
-   so successfully submitted work normally remains QUEUED.
+   legitimately queued backlog is possible. Through Milestone 9 runtime consumption
+   is disabled, so successfully submitted work normally remains QUEUED.
 2. Select specific IDs for investigation, without dumping submitted source:
 
    ```sql
@@ -995,15 +999,90 @@ The worker retrieves authoritative execution details from durable storage.
              ↓
     capture output/status
              ↓
-      persist final result
-             ↓
       cleanup resources
+             ↓
+      persist final result
              ↓
       publish committed terminal event
              ↓
       acknowledge job
 
 Cleanup must occur even when execution fails.
+
+### Milestone 9 worker contract
+
+The flow above is the complete target. M9 implements consumption, claims, the
+runner interface, persistence, and recovery only. Fake runners live exclusively
+in test sources and never interpret submissions. No runner ships in the runtime
+artifact, no Docker socket is introduced, and no execution events are published.
+
+`pairforge.worker` configuration (Spring property/environment overrides apply):
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | false | Consumption opt-in; startup fails without an ExecutionRunner |
+| `previous-worker-stopped` | false | Explicit operator attestation required before enabled startup recovery |
+| `deadline-ms` | 30000 | Overall claim-to-run deadline, 100–300000 ms; language limits belong to M10 |
+| `cleanup-timeout-ms` | 2000 | Bound each stop call and wait for runner exit, 100–10000 ms |
+| `retry-backoff-ms` | 100 | Backoff base, 0–1000 ms; waits of base and twice base |
+
+Consumption and prefetch are fixed at one. Messages must be JSON of at most
+1024 bytes containing exactly schemaVersion 1 and a canonical execution UUID.
+Malformed messages and absent execution IDs are rejected without requeue and
+logged without their payload. Terminal or already-RUNNING duplicates are
+acknowledged without invoking the runner.
+
+A single JDBC UPDATE claims only QUEUED and returns its immutable snapshot,
+deadline, and incremented revision. It commits before the runner starts. Final
+writes require both RUNNING and the claimed revision. No database transaction
+spans execution. `ExecutionRunner.run` must return a bounded result only after
+its activity and resources are cleaned up; `stop(id)` must idempotently stop and
+clean active or predecessor resources, or throw if cleanup cannot be confirmed.
+Timeout/runner failure invokes bounded stop and verifies the runner has exited
+before recording TIMED_OUT or FAILED/INFRASTRUCTURE_INTERRUPTION. Result text
+must be valid PostgreSQL-compatible Unicode and fit 64 KiB combined UTF-8.
+The runner wait uses the earlier of the durable deadline and a local monotonic
+budget beginning at the first claim attempt. Clock skew cannot extend the
+configured budget, and claim/retry latency consumes it; an expired budget stops
+and cleans the claimed job without starting the runner.
+
+Database operations have at most three attempts. The bounded result is retained
+through final-write retries; the runner is never called again to retry persistence.
+An uncertain claim that no longer matches QUEUED pauses consumption rather than
+acknowledging a potentially stranded RUNNING row. A final-write retry that finds
+a terminal row preserves it, including when the first commit response was lost.
+Only a durable terminal result or an existing RUNNING/terminal duplicate permits
+acknowledgement. A crash after commit and before ack redelivers safely.
+
+Exhausted database retries, cleanup failure, or a broker/consumer failure latch
+consumption off and make worker readiness DOWN; liveness stays independent.
+The channel closes, returning any valid unacknowledged delivery to RabbitMQ.
+Reconnects and restored database health do not resume consumption. There is no
+nack/requeue retry loop, retry table, or automatic process-restart policy. Retry
+budgets therefore cannot reset through automatic redelivery; another operator
+restart is a deliberate recovery attempt. An unsaved result can be lost on
+restart. Durable terminal state is preserved; remaining interrupted work becomes
+FAILED after verified cleanup rather than being rerun.
+
+Operator recovery for an enabled worker (test harness in M9; runtime from M10):
+
+1. Stop the old worker and independently verify its process has exited. Never
+   overlap workers or use automatic restarts to bypass an unresolved failure.
+2. Restore database/broker access, inspect the safe reason/type logs, and resolve
+   any cleanup failure. Start the API to apply migrations and declare topology;
+   rerun `scripts/provision-worker.ps1` afterward for execution-table grants.
+3. Start one replacement with `previous-worker-stopped=true` only after step 1.
+   This flag is operator attestation, **not fencing or proof of process death**.
+   Before consuming, startup calls stop(id) for every leftover RUNNING row and
+   conditionally records INFRASTRUCTURE_INTERRUPTION. More than 100 leftover rows
+   fails closed for investigation. Failed cleanup/persistence leaves readiness DOWN.
+4. Verify readiness and durable states. Do not reset RUNNING/terminal rows to
+   QUEUED. Explicit new user submissions are separate executions. Continue using
+   §9's manual procedure for abandoned QUEUED jobs; the dual-write gap is unchanged.
+
+M9 enforces active deadlines and startup interruption recovery. M10 adds actual
+container cleanup plus periodic labelled-resource/deadline reconciliation; M11
+adds committed events. No host-process execution fallback is permitted.
 
 Start with worker concurrency and prefetch of one, configurable after measurement.
 Do not hold a database transaction open while a container executes. Conditional

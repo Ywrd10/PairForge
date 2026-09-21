@@ -1,6 +1,8 @@
 spring:
   application:
     name: pairforge-execution-worker
+  flyway:
+    enabled: false # Only the API owns schema migrations, including in worker tests.
   datasource:
     url: ${DATABASE_URL}
     username: ${DATABASE_USER}
@@ -30,6 +32,15 @@ server:
   address: 127.0.0.1
   port: ${WORKER_PORT:8081}
 
+# No runtime runner exists until Milestone 10. Enabling without a runner fails startup.
+pairforge:
+  worker:
+    enabled: false
+    previous-worker-stopped: false
+    deadline-ms: 30000
+    cleanup-timeout-ms: 2000
+    retry-backoff-ms: 100
+
 management:
   endpoints:
     web:
@@ -48,4 +59,4 @@ management:
         liveness:
           include: livenessState
         readiness:
-          include: readinessState,db,rabbit
+          include: readinessState,db,rabbit,workerExecution

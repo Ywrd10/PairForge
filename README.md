@@ -2,20 +2,21 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 8 execution submission** on the authentication and room
+contains **Milestone 9 execution-worker processing** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
 last-write-wins. Authorized execution submissions are persisted and queued with
-confirmed RabbitMQ publication. The worker remains a foundation; code execution
-and the browser Run action are not enabled.
+confirmed RabbitMQ publication. Worker claims, results, and recovery are tested
+with fake runners; runtime consumption, code execution, and the browser Run
+action are not enabled.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
 | `backend/` | Modular-monolith API; authentication, rooms, collaboration, execution submission/history, health, persistence |
-| `execution-worker/` | Independent worker process; currently operational health only |
+| `execution-worker/` | Independent worker; health, disabled-by-default job consumer, atomic claims, result persistence, recovery |
 | `frontend/` | React + TypeScript + Vite authentication, room workflows, and shared Monaco editing |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
 | `scripts/` | Windows development/environment and smoke-check commands |
@@ -25,8 +26,9 @@ and the browser Run action are not enabled.
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. The API produces execution jobs; consumers and sandbox execution
-remain for later milestones. No Docker socket is mounted into an application.
+references. The API produces execution jobs; the worker processing path is tested
+without executing source. Sandbox execution remains for Milestone 10. No Docker
+socket is mounted into an application.
 
 The browser loads the React application, logs in through the API, and holds its
 access token in memory. Protected requests send a bearer header; the API validates
@@ -84,6 +86,10 @@ worker credentials and preserves the existing database/broker passwords. After
 that, omit the flag. Provisioning is repeatable on fresh or existing data volumes;
 it sets a dedicated `pairforge_worker` role's password and restricted permissions
 without recreating the database. Use this role only for PairForge's worker.
+If provisioned before the first API startup, run provisioning again after the API
+applies its migrations: M9 grants execution reads and only lifecycle/result column
+updates when the execution table exists. Source/identity writes, INSERT/DELETE,
+account reads, and schema changes stay denied.
 Provisioning refuses an existing role that owns objects or belongs to other
 roles. The local worker launcher also removes the API/bootstrap password from
 the child process environment. Local processes still share your development
@@ -168,8 +174,8 @@ The default configuration still binds HTTP to loopback and exposes only health
 through Actuator. Authentication endpoints are served on the API port.
 For the worker, `DATABASE_USER`/`DATABASE_PASSWORD` must identify its restricted
 role; the local profile uses `WORKER_DB_USER`/`WORKER_DB_PASSWORD`. The worker has
-health connectivity only, no application-table reads/writes or schema ownership.
-Execution-table grants will accompany its execution persistence implementation.
+execution-table reads and restricted lifecycle/result writes, without schema
+ownership or access to accounts/memberships. It never runs Flyway migrations.
 The local API uses the Compose bootstrap account to migrate; these local settings
 are not a production deployment configuration.
 
@@ -203,7 +209,11 @@ joins, rollback, authorization, bounded input/pagination, secret disclosure, and
 dependency failure/recovery. Execution tests cover confirmed persistent dispatch,
 strict input/byte bounds, membership, history, admission concurrency, Redis loss,
 real RabbitMQ nack/return/outage, PostgreSQL loss, conditional dispatch failures,
-and the documented commit-to-publication gap. Worker transitions remain future work.
+and the documented commit-to-publication gap. Worker tests cover atomic claims,
+terminal protection, duplicate/malformed jobs, deadlines, cleanup failure,
+database/broker loss, retained-result retries, readiness latching, and real child
+JVM kills both during a fake run and after result commit before acknowledgement.
+Fake runners do not interpret source and are absent from the runtime JAR.
 
 ```powershell
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
@@ -279,9 +289,28 @@ A worker claim/completion wins over an attempted dispatch-failure update.
 
 The approved dual-write crash window remains: committed QUEUED work can be
 stranded before publication. See the [operator procedure](docs/ARCHITECTURE.md#operator-procedure-for-abandoned-queued-submissions).
-There is no outbox or automatic redispatch. With no worker consumer in M8,
+There is no outbox or automatic redispatch. With runtime consumption disabled,
 successful jobs normally remain QUEUED and consume capacity. Do not scale beyond
 one API instance without replacing the documented in-process admission lock.
+
+## Worker processing (Milestone 9)
+
+`execution.jobs` → atomic QUEUED-to-RUNNING claim → runner interface → verified
+cleanup → conditional terminal result → manual acknowledgement. The snapshot
+comes from PostgreSQL; a duplicate never reruns started or terminal work.
+
+Consumption is disabled by default, and enabling it without a runner fails
+startup. M9 ships **no runtime runner**. The worker remains health-only when
+launched normally. Enabled test workers use one consumer/prefetched message and
+three bounded infrastructure attempts. Exhaustion or broker/cleanup failure
+stops consumption and makes readiness unhealthy until operator recovery/restart.
+
+See [the worker contract and recovery procedure](docs/ARCHITECTURE.md#milestone-9-worker-contract)
+for configuration, database grants, cleanup requirements, and single-worker
+operation. Verify the predecessor has stopped before recovery; the confirmation
+flag is not a distributed lock. An unsaved result may be lost during failure:
+recovery preserves terminal rows and fails interrupted work without rerunning it.
+Docker execution is M10; committed events and browser Run/output are M11.
 
 ## Room API
 
@@ -691,5 +720,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 9. The planned execution architecture retains the documented
+Milestone 10. The planned execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.
