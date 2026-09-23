@@ -1200,6 +1200,11 @@ individual file bind mount; Windows uses the worker-owned directory's ACLs.
 Container logs are disabled; stdout and stderr share one 64 KiB budget across
 compile/run phases. Invalid UTF-8, incomplete trailing characters, and NUL bytes
 are discarded to produce PostgreSQL-safe text without expanding that budget.
+When a deadline or output limit deliberately kills the Docker CLI, pipe-read I/O
+errors caused by termination do not replace that limit outcome. This handling is
+allowed only after the worker initiated the kill and confirmed CLI exit; other
+reader errors and drain timeouts still fail closed. CLI exit does not prove
+container cleanup: the runner must still remove and verify its owned resources.
 
 `pairforge.sandbox` properties use Spring environment naming: uppercase, dots
 become underscores, and hyphens are removed (for example,
@@ -1573,7 +1578,7 @@ they do not claim to stop the developer's shared Docker daemon.
 | Interruption plus unavailable Docker cleanup | No terminal persistence before verified cleanup; real resources remain visible until recovery and are not mistaken for success. | `DockerSandboxLifecycleIT.interruptionWithDockerLossCannotCompleteUntilRecoveryCleansRealResources` |
 | Ownership mismatch, orphan, blocked exec, shutdown | Only owned canonical resources are removed; deadlines/reconciliation and shutdown cleanup remain bounded. | `DockerSandboxLifecycleIT`, `ExecutionWorkerIT.gracefulWorkerShutdownWaitsForActiveContainerCleanup` |
 | Context shutdown while a failure-triggered consumer stop is active | Drain the existing stop before processor teardown; late connection failures cannot schedule work on a closed executor. | `ExecutionConsumerTest.shutdownWaitsForFailureStopBeforeClosingProcessorOrReturning`, `ExecutionWorkerIT` outage/restart cases |
-| Java/Python errors and sandbox resource/control failures | Compilation/runtime only inside constrained containers; enforce time, memory, CPU, PIDs, output, storage and network controls; fail closed. | `DockerSandboxIT`, `DockerSandboxLifecycleIT`, `SandboxPolicyTest` |
+| Java/Python errors and sandbox resource/control failures | Compilation/runtime only inside constrained containers; enforce time, memory, CPU, PIDs, output, storage and network controls; fail closed. | `DockerSandboxIT`, `DockerSandboxLifecycleIT`, `SandboxPolicyTest`, `DockerCommandClientTest` (forced termination versus unexpected output-read errors) |
 | Event publish/consume failure and duplicate/stale events | Saved result survives; bounded retry/discard, no execution rerun or state regression. | Both `ExecutionEventPublisherTest` suites, `ExecutionEventConsumerTest`, `ExecutionWorkerIT.notificationFailureDoesNotLoseResultOrRepeatSource` |
 | Database unavailable to API event listener | Exhausted event is discarded, persisted output survives, authorized REST recovers without another submission. | `ExecutionIT.databaseLossDiscardsNotificationAfterBoundedAttemptsButRestRecoversResult` |
 | API/browser reconnect, lost HTTP response or notification | Recover authoritative history/detail; stable selection; no automatic POST retry or continuous polling. | `ExecutionIT.reconnectingApiConsumerHandlesBacklogWithoutRegressingCommittedState`, execution client tests, `executions.spec.ts` |

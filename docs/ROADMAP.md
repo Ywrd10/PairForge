@@ -1449,6 +1449,30 @@ documented. This milestone does not defer correctness required by earlier work.
   commit/push and its GitHub Actions verification.
 - **Milestone 12 remains DONE. Milestone 13 remains TODO and is planning only.**
 
+### CI correction and final local verification (2026-09-23)
+
+- The first M12 push (`5aaa23a`) passed frontend/browser CI but failed one Linux
+  sandbox test in [run 35872386851](https://github.com/Ywrd10/PairForge/actions/runs/35872386851).
+  Killing the Docker CLI after output overflow could close its pipe during a
+  read, replacing the expected limit result with `IOException: Stream closed`.
+  This was a runtime race, not an acceptable flaky-test retry; M12 was reopened
+  while correcting it.
+- `DockerCommandClient` now tolerates pipe I/O errors only after its own limit
+  termination and confirmed CLI exit. Unexpected read errors and drain timeouts
+  still fail closed; the runner must separately verify container cleanup.
+  Deterministic timeout/overflow regressions failed before the fix and pass
+  afterward; a third case confirms ordinary read failures remain errors.
+- Targeted verification passed three unit and 26 real sandbox/lifecycle tests.
+  A subsequent fresh worker `clean verify` passed all **100 worker tests**.
+  Together with the unchanged backend's **233 passing tests** from the full
+  review build, the final local report set contains **333 Java tests**, zero
+  failures/errors/skips. A final browser run passed all **12 tests** with retries
+  disabled. Frontend's 65 tests and its build/lint/type checks remain passing.
+- Final cleanup found no sandbox or browser dependency containers/workspaces.
+  No required local acceptance check remains failing or unverified. The corrected
+  commit's remote CI must be checked after push; the failed first run is not
+  passing evidence. No Milestone 13 implementation was introduced.
+
 ---
 
 ## Milestone 13 — Observability
