@@ -5,6 +5,10 @@ export class ApiError extends Error {
     readonly fieldErrors: Record<string, string> = {},
     readonly requestId?: string,
     readonly retryAfter?: string,
+    readonly executionId?: string,
+    readonly outcomeUnknown?: boolean,
+    readonly executionStatus?: string,
+    readonly failureReason?: string,
   ) { super(message) }
 }
 
@@ -61,7 +65,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       }
       throw new ApiError(message, response.status, fields,
         response.headers.get('X-Request-ID') ?? undefined,
-        response.headers.get('Retry-After') ?? undefined)
+        response.headers.get('Retry-After') ?? undefined,
+        isRecord(body) && typeof body.executionId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.executionId) ? body.executionId : undefined,
+        isRecord(body) && typeof body.outcomeUnknown === 'boolean' ? body.outcomeUnknown : undefined,
+        isRecord(body) && typeof body.status === 'string' && ['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'TIMED_OUT'].includes(body.status) ? body.status : undefined,
+        isRecord(body) && typeof body.failureReason === 'string' && body.failureReason.length <= 64 ? body.failureReason : undefined)
     }
     try { return await response.json() as T }
     catch { throw new ApiError('The server returned an unreadable response.', response.status) }

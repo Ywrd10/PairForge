@@ -37,11 +37,11 @@ class WorkerContractTest {
     @Test void enablingWithoutRunnerOrPredecessorConfirmationFailsClosed() {
         var config = new WorkerConfiguration(); var beans = new DefaultListableBeanFactory();
         assertThatThrownBy(() -> config.workerExecution(connection, mapper, mock(ExecutionRepository.class),
-                beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, true, 30000, 2000, 100)))
+                beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, true, 30000, 2000, 100), mock(ExecutionEventPublisher.class)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("enabled, configured sandbox");
         beans.registerSingleton("testRunner", mock(ExecutionRunner.class));
         assertThatThrownBy(() -> config.workerExecution(connection, mapper, mock(ExecutionRepository.class),
-                beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, false, 30000, 2000, 100)))
+                beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, false, 30000, 2000, 100), mock(ExecutionEventPublisher.class)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("previous worker");
     }
     @Test void resultRetentionUsesCombinedUtf8BytesAndRejectsInvalidText() {

@@ -2,14 +2,16 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 10 Docker sandbox execution** on the authentication and room
+contains **Milestone 11 real-time execution results** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
 last-write-wins. Authorized execution submissions are persisted and queued with
 confirmed RabbitMQ publication. An explicitly enabled worker compiles/runs Java
-or Python in constrained disposable containers and persists results. The browser
-Run action and real-time result events remain for Milestone 11.
+or Python in constrained disposable containers and persists results. Run captures
+the visible editor snapshot; committed RabbitMQ events notify authorized room
+browsers to retrieve status/output through REST. Refresh Status and reconnect
+recover missed notifications without automatically resubmitting code.
 
 ## Structure
 
@@ -130,7 +132,8 @@ source and undo history; it does not change the room's saved default. Refreshing
 metadata preserves edits. Connected rooms share accepted document state through
 Redis for up to 24 hours of inactivity; reconnection restores it while available,
 and loss/expiration causes an explicit reset. Unsent local edits can be lost on
-leaving/reloading. Run stays disabled with empty output panels until Milestone 11.
+leaving/reloading. Run is enabled when the editor and connection are ready; it
+captures pending local edits without waiting for the collaboration debounce.
 
 Monaco and its browser worker are bundled locally, with no CDN or language server.
 Both syntax definitions load with the lazy editor module; language switching
@@ -313,7 +316,7 @@ for configuration, database grants, cleanup requirements, and single-worker
 operation. Verify the predecessor has stopped before recovery; the confirmation
 flag is not a distributed lock. An unsaved result may be lost during failure:
 recovery preserves terminal rows and fails interrupted work without rerunning it.
-M10 adds Docker execution; committed events and browser Run/output remain M11.
+M10 adds Docker execution; M11 adds committed events and browser Run/output.
 
 ### Enable Docker execution (Milestone 10)
 
@@ -339,9 +342,9 @@ image is downloaded per execution. Keep the same engine, workspace root, and
 namespace across restarts; do not run overlapping workers. Runtime defaults and
 failure recovery are documented in [Architecture §12](docs/ARCHITECTURE.md#12-docker-execution).
 
-Submit Java/Python through the existing authenticated REST endpoints and inspect
-the execution detail to retrieve the saved output/status. The browser Run button
-remains disabled. Required sandbox tests fail if Docker/images/controls are
+Submit Java/Python using Run or the existing authenticated REST endpoints. The
+browser displays status and saved stdout/stderr automatically on normal delivery.
+Required sandbox tests fail if Docker/images/controls are
 missing; no tests silently skip them. CI builds these same images before Maven.
 Docker logs are disabled, output is bounded, source is mounted read-only, and
 compilation/programs run solely inside disposable constrained containers.
@@ -353,6 +356,40 @@ recovering RUNNING records. A killed worker can leave a constrained container
 until recovery; Docker alone provides no wall-clock expiration. Unknown files or
 ownership mismatches require operator inspection. Do not use global Docker prune
 or delete data volumes as a recovery shortcut.
+
+## Real-time execution (Milestone 11)
+
+Start the sandbox worker using the opt-in instructions above, open an authorized
+room, and click **Run**. The UI displays QUEUED/RUNNING and the final result; fast
+jobs can skip visible intermediate states. Java uses one `Main.java`, Python one
+`main.py`, with standard libraries, closed stdin, and no external network.
+stdout/stderr render as text with exit code, duration, failure reason, and an
+explicit truncation marker when the shared output limit is exceeded.
+
+The selector shows the latest 20 room executions. Selection remains stable while
+other runs finish; your new submission selects its receipt unless you changed
+selection during the POST. Source/language are captured at click time even if an
+editor update is still waiting for debounce. Double clicks during that POST are
+blocked; later deliberate clicks create new executions and consume admission limits.
+
+Execution notifications use the existing authenticated WebSocket connection.
+The API and worker commit PostgreSQL first, then publish confirmed persistent
+messages through `execution.events`. The API validates committed metadata and
+broadcasts IDs/status/revision to authorized room subscribers; source/output stay
+behind REST authorization. Lost notifications cannot rerun code or erase results.
+
+After 30 seconds without final status, the UI shows a delayed-status hint. Use
+**Refresh Status**, or manually reconnect after a disconnect, to reconcile durable
+state. A lost HTTP response or dispatch uncertainty requires inspecting the known
+execution ID/recent executions before running again. There is no automatic POST
+retry, continuous polling, or guarantee that every intermediate event arrives.
+The approved commit-to-publish crash windows remain; there is no outbox.
+
+See [Architecture §14](docs/ARCHITECTURE.md#14-real-time-execution-events) for event
+limits, acknowledgement/retry behavior, readiness, and failure counters. Browser
+acceptance now requires both API/worker JARs and prepared sandbox images. CI builds
+both, provisions a restricted worker database role, and runs controlled real
+Java/Python programs in isolated fixtures.
 
 ## Room API
 
@@ -437,7 +474,7 @@ GitHub. A locally passing build alone does not establish a passing remote run.
 Open one room in two separately authenticated browser sessions after invitation
 admission. Typing and Java/Python language changes synchronize after a 300 ms
 debounce. Connection status distinguishes accepted state from pending edits,
-document resets, and failures. Run remains disabled.
+document resets, and failures. Run independently captures the visible snapshot.
 
 The browser connects to `/ws` on its configured API base URL (`ws` locally,
 `wss` with HTTPS), authenticates its STOMP CONNECT header, subscribes to authorized
@@ -762,5 +799,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 11. The execution architecture retains the documented
+Milestone 12. The execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

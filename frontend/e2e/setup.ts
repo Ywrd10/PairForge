@@ -1,8 +1,9 @@
 import { execFileSync, spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { resolve, dirname, basename } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -16,31 +17,50 @@ export default async function setup() {
   const target = resolve(root, 'backend/target')
   const jar = existsSync(target) && readdirSync(target).find(name => name.endsWith('.jar'))
   if (!jar) throw new Error('Build the backend jar before browser tests (Maven package).')
+  const workerTarget = resolve(root, 'execution-worker/target')
+  const workerJar = existsSync(workerTarget) && readdirSync(workerTarget).find(name => name.endsWith('.jar'))
+  if (!workerJar) throw new Error('Build the worker jar before browser tests.')
   // Refuse to accidentally use a pre-existing developer API on the test port.
-  await new Promise<void>((done, reject) => {
-    const probe = createServer()
-    probe.once('error', reject)
-    probe.listen(18080, '127.0.0.1', () => probe.close(error => error ? reject(error) : done()))
-  })
+  for (const port of [18080, 18081]) {
+    await new Promise<void>((done, reject) => {
+      const probe = createServer()
+      probe.once('error', reject)
+      probe.listen(port, '127.0.0.1', () => probe.close(error => error ? reject(error) : done()))
+    })
+  }
   const suffix = randomBytes(6).toString('hex')
   const password = randomBytes(24).toString('hex')
+  const workerPassword = randomBytes(24).toString('hex')
+  const namespace = `e2e-${suffix}`
+  const workspace = realpathSync(mkdtempSync(resolve(tmpdir(), 'pairforge-e2e-')))
   const names: string[] = []
   let api: ChildProcess | undefined
+  let worker: ChildProcess | undefined
   let launchError = false
   async function cleanup() {
     const failures: string[] = []
-    if (api && api.exitCode === null) {
-      const child = api
+    for (const child of [worker, api]) {
+      if (!child || child.exitCode !== null) continue
       const exited = new Promise<void>(done => child.once('exit', () => done()))
       try {
         if (process.platform === 'win32') {
           // Oracle's PATH shim can spawn a second java.exe; stop our entire owned tree.
           execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
         } else child.kill()
-      } catch { if (child.exitCode === null) failures.push(`API process ${child.pid}`) }
-      await Promise.race([exited, new Promise<void>(done => setTimeout(done, 5000).unref())])
-      if (child.exitCode === null) child.kill('SIGKILL')
+      } catch { if (child.exitCode === null) failures.push(`Test process ${child.pid}`) }
+      await Promise.race([exited, new Promise<void>(done => setTimeout(done, 25000).unref())])
+      if (child.exitCode === null) {
+        child.kill('SIGKILL')
+        await Promise.race([exited, new Promise<void>(done => setTimeout(done, 5000).unref())])
+        if (child.exitCode === null && child.signalCode === null) failures.push(`Test process ${child.pid} did not stop`)
+      }
     }
+    try {
+      const leftovers = docker(['ps', '-aq', '--filter', `label=io.pairforge.sandbox=${namespace}`]).split(/\s+/).filter(Boolean)
+      for (const id of leftovers) docker(['rm', '-f', id])
+      if (realpathSync(workspace) !== workspace || dirname(workspace) !== realpathSync(tmpdir()) || !basename(workspace).startsWith('pairforge-e2e-')) throw new Error('Unsafe test workspace')
+      rmSync(workspace, { recursive: true })
+    } catch { failures.push('sandbox test resources') }
     for (const name of names.reverse()) {
       try { docker(['rm', '-f', '-v', name]) } catch { failures.push(name) }
     }
@@ -85,6 +105,30 @@ export default async function setup() {
         if (health.ok) break
       } catch { /* Startup connection failures are retried until the bounded deadline. */ }
       if (Date.now() > readyDeadline) throw new Error('Test API readiness timed out')
+      await new Promise(done => setTimeout(done, 500))
+    }
+    docker(['cp', resolve(root, 'scripts/provision-worker.sql'), `${names[0]}:/tmp/provision-worker.sql`])
+    docker(['exec', '-e', 'WORKER_DB_USER=pairforge_worker_e2e', '-e', `WORKER_DB_PASSWORD=${workerPassword}`,
+      names[0], 'psql', '-U', 'pairforge', '-d', 'pairforge', '-f', '/tmp/provision-worker.sql'])
+    const javaImage = docker(['image', 'inspect', '--format', '{{.Id}}', 'pairforge-sandbox-java:m10'])
+    const pythonImage = docker(['image', 'inspect', '--format', '{{.Id}}', 'pairforge-sandbox-python:m10'])
+    worker = spawn('java', ['-jar', resolve(workerTarget, workerJar)], {
+      cwd: root, windowsHide: true, stdio: 'ignore',
+      env: { ...process.env, JWT_KEY_HEX: '', POSTGRES_PASSWORD: '', SPRING_PROFILES_ACTIVE: 'sandbox', WORKER_PORT: '18081',
+        DATABASE_URL: `jdbc:postgresql://127.0.0.1:${pg}/pairforge`, DATABASE_USER: 'pairforge_worker_e2e', DATABASE_PASSWORD: workerPassword,
+        RABBITMQ_HOST: '127.0.0.1', RABBITMQ_PORT: rabbit, RABBITMQ_USER: 'pairforge', RABBITMQ_PASSWORD: password,
+        PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED: 'true', PAIRFORGE_SANDBOX_NAMESPACE: namespace,
+        PAIRFORGE_SANDBOX_WORKSPACE_ROOT: workspace, PAIRFORGE_SANDBOX_JAVA_IMAGE: javaImage, PAIRFORGE_SANDBOX_PYTHON_IMAGE: pythonImage,
+      },
+    })
+    worker.on('error', () => { launchError = true })
+    const workerDeadline = Date.now() + 60000
+    while (true) {
+      if (launchError || worker.exitCode !== null) throw new Error('Test sandbox worker failed to start')
+      try {
+        if ((await fetch('http://127.0.0.1:18081/actuator/health/readiness', { signal: AbortSignal.timeout(2000) })).ok) break
+      } catch { /* Bounded startup only. */ }
+      if (Date.now() > workerDeadline) throw new Error('Test worker readiness timed out')
       await new Promise(done => setTimeout(done, 500))
     }
     return cleanup

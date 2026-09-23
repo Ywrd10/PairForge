@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError, request } from './client'
 
 describe('API boundary', () => {
+  it('preserves a validated execution ID and dispatch uncertainty without trusting malformed IDs', async () => {
+    const id='11111111-1111-4111-8111-111111111111'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ message: 'Unknown outcome', executionId: id, outcomeUnknown: true }, { status: 503 })))
+    await expect(request('/rooms/test/executions')).rejects.toMatchObject({ executionId: id, outcomeUnknown: true, status: 503 })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ executionId: '../outside', outcomeUnknown: 'yes' }, { status: 503 })))
+    await expect(request('/rooms/test/executions')).rejects.toMatchObject({ executionId: undefined, outcomeUnknown: undefined })
+  })
   it('sends JSON and bearer credentials only to the configured API without cookies or redirects', async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ id: 'room' }))
     vi.stubGlobal('fetch', fetch)

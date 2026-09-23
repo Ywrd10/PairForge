@@ -3,6 +3,9 @@ import { CodeEditor } from './CodeEditor'
 import type { EditorLanguage } from './monaco'
 import { useSession } from '../auth/context'
 import { CollaborationClient } from '../collaboration/client'
+import { ExecutionClient } from '../execution/client'
+import { ExecutionPanel } from '../execution/ExecutionPanel'
+import { validSource } from '../api/executions'
 
 const templates: Record<EditorLanguage, string> = {
   JAVA: 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, PairForge!");\n    }\n}\n',
@@ -12,11 +15,15 @@ const templates: Record<EditorLanguage, string> = {
 export function RoomWorkspace({ roomId, defaultLanguage }: { roomId: string; defaultLanguage: EditorLanguage }) {
   const { session } = useSession()
   const [initialSource] = useState(() => templates[defaultLanguage])
-  const [client] = useState(() => new CollaborationClient(session, roomId, initialSource, defaultLanguage))
+  const [editorReady, setEditorReady] = useState(false)
+  const [execution] = useState(() => new ExecutionClient(session, roomId))
+  const executions = useSyncExternalStore(execution.subscribe, execution.getSnapshot)
+  const [client] = useState(() => new CollaborationClient(session, roomId, initialSource, defaultLanguage,
+    { event: execution.event, ready: () => { void execution.refresh() } }))
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot)
   const { language } = state
   const [copyNotice, setCopyNotice] = useState<{ backup: typeof state.backup; message: string } | null>(null)
-  useEffect(() => { client.start(); return () => client.stop() }, [client])
+  useEffect(() => { execution.start(); client.start(); return () => { client.stop(); execution.stop() } }, [client, execution])
   return <>
     <section className="panel" aria-label="Code editor">
       <div className="editor-toolbar">
@@ -26,11 +33,12 @@ export function RoomWorkspace({ roomId, defaultLanguage }: { roomId: string; def
             <option value="JAVA">Java</option><option value="PYTHON">Python</option>
           </select>
         </label>
-        <button disabled aria-describedby="execution-notice">Run</button>
+        <button disabled={!editorReady || !state.connected || !state.ready || executions.submitting || !validSource(state.content)}
+          aria-describedby="execution-notice" onClick={() => void execution.run(state.content, language)}>Run</button>
       </div>
       <p>Accepted edits are shared through Redis and expire after 24 hours of inactivity. Simultaneous edits may overwrite each other.
         Unsynchronized edits stay in this page only; copy them before leaving. Switching language keeps your source text.</p>
-      <CodeEditor initialSource={initialSource} language={language} content={state.content} readOnly={!state.ready}
+      <CodeEditor initialSource={initialSource} language={language} content={state.content} readOnly={!state.ready} onReady={setEditorReady}
         onChange={content => client.edit(content, language)} />
     </section>
     <section className="panel" aria-label="Connection status">
@@ -59,12 +67,6 @@ export function RoomWorkspace({ roomId, defaultLanguage }: { roomId: string; def
         {copyNotice?.backup === state.backup && <p role="status">{copyNotice.message}</p>}
       </section>}
     </section>
-    <section className="panel" aria-label="Output">
-      <h2>Output</h2><p id="execution-notice">Execution is not available yet. Run is disabled.</p>
-      <div className="output-columns">
-        <section aria-label="stdout"><h3>stdout</h3><pre aria-label="Standard output">No output yet.</pre></section>
-        <section aria-label="stderr"><h3>stderr</h3><pre aria-label="Standard error">No errors yet.</pre></section>
-      </div>
-    </section>
+    <ExecutionPanel client={execution} />
   </>
 }

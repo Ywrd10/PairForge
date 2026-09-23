@@ -62,6 +62,9 @@ class ExecutionIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redis;
     @MockitoSpyBean ExecutionJobPublisher publisher;
+    @MockitoSpyBean ExecutionEventPublisher eventPublisher;
+    @MockitoSpyBean org.springframework.messaging.simp.SimpMessagingTemplate sockets;
+    @Autowired org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer executionEventListener;
     final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     record Actor(UUID id, String token) {}
     Actor actor() {
@@ -85,6 +88,48 @@ class ExecutionIT {
         return json.readTree(response.body());
     }
     @BeforeEach void clean() { executions.deleteAll(); admin.purgeQueue(ExecutionMessaging.JOBS); }
+
+    @Test void queuedEventIsCommittedAndRealRabbitConsumerBroadcastsIt() throws Exception {
+        var owner=actor(); var room=room(owner);
+        doAnswer(call -> {
+            ExecutionEvent event=call.getArgument(0);
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(jdbc.queryForObject("select status from executions where id=?",String.class,event.executionId())).isEqualTo(event.status());
+            return call.callRealMethod();
+        }).when(eventPublisher).publish(any());
+        var receipt=body(request("POST",path(room),source("print(1)"),owner.token()),202);
+        UUID id=UUID.fromString(receipt.get("executionId").asText());
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> verify(sockets).convertAndSend(
+                "/topic/rooms/"+room+"/executions",new ExecutionEvent(1,id,room,"QUEUED",0)));
+    }
+    @Test void eventRouteFailureDoesNotFailDispatchOrLoseSavedResults() throws Exception {
+        var binding=new Binding(ExecutionMessaging.EVENTS,Binding.DestinationType.QUEUE,ExecutionMessaging.EXCHANGE,ExecutionMessaging.EVENTS,Map.of());
+        admin.removeBinding(binding);
+        try {
+            var owner=actor(); var room=room(owner);
+            var receipt=body(request("POST",path(room),source("print(1)"),owner.token()),202);
+            UUID id=UUID.fromString(receipt.get("executionId").asText());
+            assertThat(rabbit.receive(ExecutionMessaging.JOBS,2000)).isNotNull();
+            jdbc.update("update executions set status='SUCCEEDED',state_revision=2,stdout='saved',completed_at=now() where id=?",id);
+            assertThat(eventPublisher.publish(new ExecutionEvent(1,id,room,"SUCCEEDED",2))).isFalse();
+            assertThat(body(request("GET","/api/executions/"+id,null,owner.token()),200).get("stdout").asText()).isEqualTo("saved");
+        } finally { admin.declareBinding(binding); }
+    }
+    @Test void reconnectingApiConsumerHandlesBacklogWithoutRegressingCommittedState() throws Exception {
+        var owner=actor(); var room=room(owner);
+        executionEventListener.stop();
+        UUID id;
+        try {
+            var receipt=body(request("POST",path(room),source("print(1)"),owner.token()),202);
+            id=UUID.fromString(receipt.get("executionId").asText());
+            jdbc.update("update executions set status='SUCCEEDED',state_revision=2,stdout='saved',completed_at=now() where id=?",id);
+            assertThat(eventPublisher.publish(new ExecutionEvent(1,id,room,"SUCCEEDED",2))).isTrue();
+            assertThat(eventPublisher.publish(new ExecutionEvent(1,id,room,"RUNNING",1))).isTrue();
+        } finally { executionEventListener.start(); }
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> verify(sockets).convertAndSend(
+                "/topic/rooms/"+room+"/executions",new ExecutionEvent(1,id,room,"SUCCEEDED",2)));
+        verify(sockets,never()).convertAndSend("/topic/rooms/"+room+"/executions",new ExecutionEvent(1,id,room,"QUEUED",0));
+    }
 
     @Test void commitsVisibleSnapshotBeforeConfirmedPersistentIdOnlyPublication() throws Exception {
         var user = actor(); var room = room(user);

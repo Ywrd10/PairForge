@@ -2,12 +2,15 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
+import { useEffect } from 'react'
 import App from './App'
 import { AuthProvider } from './auth/AuthProvider'
 
 // Monaco needs a real browser. Keep page/session behavior independent of its DOM.
-vi.mock('./editor/CodeEditor', () => ({ CodeEditor: ({ content, onChange }: { content: string; onChange: (source: string) => void }) =>
-  <textarea aria-label="Source code" value={content} onChange={event => onChange(event.target.value)} /> }))
+vi.mock('./editor/CodeEditor', () => ({ CodeEditor: ({ content, onChange, onReady }: { content: string; onChange: (source: string) => void; onReady?: (ready: boolean) => void }) => {
+  useEffect(() => { onReady?.(true) }, [onReady])
+  return <textarea aria-label="Source code" value={content} onChange={event => onChange(event.target.value)} />
+} }))
 // Page tests isolate routing/metadata. The real collaboration state machine has its own tests.
 vi.mock('./collaboration/client', () => ({ CollaborationClient: class {
   listeners = new Set<() => void>()
@@ -177,9 +180,9 @@ it('preserves the draft and selected language through successful and failed meta
   fireEvent.change(source, { target: { value: 'my unsaved source' } })
   fireEvent.change(screen.getByLabelText('Editor language'), { target: { value: 'PYTHON' } })
   expect(screen.getByRole('heading', { name: 'main.py' })).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', false)
   expect(screen.getByRole('region', { name: 'Connection status' }).textContent).toContain('Connected')
-  expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('Execution is not available')
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toContain('Run submits the visible source')
   fireEvent.click(screen.getByRole('button', { name: 'Refresh room' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh room' })).toHaveProperty('disabled', false))
   expect(screen.getByLabelText('Source code')).toBe(source)

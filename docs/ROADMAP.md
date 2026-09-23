@@ -9,9 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 10 (DONE). Opt-in Docker Java/Python execution,
-resource limits, result persistence, and failure/cleanup acceptance checks pass
-locally. The default worker remains health-only. Milestone 11 remains TODO and
+Current milestone: Milestone 11 (DONE). Run, committed execution notifications,
+authorized real-time results, and explicit REST recovery pass local acceptance
+checks. The default worker remains health-only. Milestone 12 remains TODO and
 requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
@@ -1265,7 +1265,7 @@ isolated execution test environment and leave no unaccounted containers/workspac
 
 ## Milestone 11 — Real-Time Execution Results
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1292,6 +1292,80 @@ coalesced for fast jobs. Duplicate/delayed events cannot regress a terminal stat
 Test event publish failure, API/browser reconnect, and REST recovery when an
 event is missed. Persisted results survive notification failure, and code is
 never rerun to recover an event. Continuous polling is not required.
+
+### Verification (2026-09-22)
+
+| Acceptance | Evidence |
+| --- | --- |
+| Run captures the visible source/language | Client regression verifies one POST independent of collaboration debounce; loaded editor and ready connection are required. |
+| QUEUED, RUNNING, and terminal notifications follow commits | API/worker integration tests inspect persisted state and persistent RabbitMQ messages; real-browser Java/Python runs show results automatically. Fast intermediate transitions may coalesce. |
+| Authorized room delivery | Existing authenticated STOMP connection supports a third same-room subscription; integration tests reject strangers, cross-room subscriptions, and client SEND to execution topics. Two authorized browsers receive the same result. |
+| Publication failure cannot lose saved results or rerun code | Confirm/return/nack/timeout/exception tests verify bounded retries. Missing event routing preserves REST results; duplicate job delivery invokes the runner only once. |
+| Duplicate/delayed events cannot regress state | Strict envelope validation, authoritative database reads, bounded revision caches, consumer-restart tests, and stale REST/client regressions preserve terminal state. |
+| API/browser recovery and missed notifications | Listener stop/restart drains durable events; browser tests deliberately drop notifications, independently recover through Refresh Status and reconnect, and verify no recovery resubmission. A 30-second UI hint performs no polling. |
+| Output and failure display | Real sandbox browser tests cover Java/Python success, Python runtime failure, Java compilation failure, and timeout. Output is rendered as text; recent selection remains stable. |
+
+- Java 21 root `clean verify` passes **323 tests**: API 57 unit/174 integration,
+  worker 33 unit/59 integration; **zero failures, errors, or skips**. Real
+  PostgreSQL, Redis, RabbitMQ, and Docker sandbox checks were required and ran.
+- Node 24 clean install, lint, typecheck, **64 unit tests**, production build,
+  and dependency audit pass; npm reports zero vulnerabilities. Final browser
+  acceptance passes **12 tests** with retries disabled, using the packaged API,
+  restricted-role sandbox worker, and isolated dependencies. CI now prepares
+  sandbox images and both Java packages for browser acceptance.
+- One browser run overlapped the sandbox lifecycle suite and failed an existing
+  test before page load with Chromium `ERR_NO_BUFFER_SPACE`; the other 11 passed.
+  The complete isolated rerun passed without changing assertions or enabling
+  retries. This is recorded as a transient local browser/resource failure, not
+  hidden as an automatic retry. The earlier full browser run also passed.
+- PowerShell 7/5.1 credential/launcher checks, Actionlint, Compose configuration,
+  local-secret exclusion, and tracked/new-file whitespace checks pass. Final
+  inspection found zero sandbox containers, browser dependency containers, or
+  temporary browser workspaces. Existing Monaco bundle-size/JVM advisories and
+  a Rabbit publisher-callback shutdown diagnostic are non-failing; no required
+  local check remains failing, skipped, or unverified.
+- Architecture/specification/README document the five-field event contract,
+  bounded publisher/consumer handling, listener readiness, visible-source Run,
+  stable recent-result selection, and manual recovery. No schema, dependency,
+  shared-library, outbox, or additional service was added. The approved
+  commit-to-publish crash window and single API/worker limits remain.
+- M10 commit `8eb1d03` has a successful [GitHub Actions run](https://github.com/Ywrd10/PairForge/actions/runs/35807792192).
+  M11 changes remain uncommitted/unpushed, so remote CI for this milestone is
+  **unverified**. Local acceptance is complete. **Milestone 12 remains TODO**;
+  its broader combined-outage audit has not begun.
+
+### Review verification (2026-09-22)
+
+- Re-read the agent guidance, specification, architecture, and roadmap, then
+  reviewed M11 runtime, configuration, security boundaries, tests, CI, and docs.
+  Every acceptance row above passes. No additional service, dependency, schema,
+  sandbox relaxation, dead runtime code, or unnecessary future-milestone feature
+  was identified. The small failure counters/readiness/CI additions belong to M11.
+- Fixed one error-handling defect: an accepted HTTP 202 with unreadable JSON
+  previously showed only a generic error. The execution client now treats it as
+  an uncertain submission and directs read-only recovery without automatic POST
+  retry. A new regression failed before the fix and passes afterward, verifying
+  recovery of the persisted result and exactly one submission.
+- Strengthened browser recovery coverage: a second deliberate run loses its
+  terminal notification and remains RUNNING locally until reconnect itself
+  fetches the completed result. Refresh Status is independently checked on the
+  first run; exactly two deliberate submissions occur. The test now waits for
+  the dropped terminal notification rather than assuming all three intermediate
+  events arrive. Clarified the architecture's older subscription-order wording
+  to match the current pre-snapshot execution subscription.
+- Fresh root Maven `clean verify`: **323 Java tests**, zero failures/errors/skips.
+  Frontend clean install, lint, typecheck, **65 unit tests**, production build,
+  and audit pass (zero reported vulnerabilities). All **12 browser tests** pass
+  on the first review run, with retries disabled and no concurrent Java tests.
+  The earlier Chromium resource failure did not recur; no new flakiness was
+  observed. Existing Monaco/JVM advisories remain non-blocking.
+- PowerShell 7/5.1 credential/launcher tests, Actionlint, Compose validation,
+  credential exclusion, and whitespace checks pass. Final cleanup inspection
+  found zero sandbox containers, browser dependency containers, or browser
+  workspaces. No required local check remains failing, skipped, or unverified.
+- M11 remains uncommitted/unpushed, so remote CI is still **unverified**. The
+  documented dual-write gap, opt-in sandbox worker, and single API/worker limits
+  remain. **Milestone 11 remains DONE; Milestone 12 remains TODO.**
 
 ---
 

@@ -14,7 +14,8 @@ class ExecutionProcessorTest {
     final ExecutionRunner runner = mock(ExecutionRunner.class);
     final ExecutionResult success = new ExecutionResult(ExecutionResult.Status.SUCCEEDED, "ok", "", 0, 1L, null, false);
     final WorkerProperties properties = new WorkerProperties(true, true, 500, 100, 0);
-    final ExecutionProcessor processor = new ExecutionProcessor(repository, runner, properties);
+    final ExecutionEventPublisher events = mock(ExecutionEventPublisher.class);
+    final ExecutionProcessor processor = new ExecutionProcessor(repository, runner, properties, events);
     @BeforeEach void queued() throws Exception {
         when(repository.state(id)).thenReturn(Optional.of(new ExecutionRepository.State(id, "QUEUED", 0)));
         when(repository.claim(eq(id), anyLong())).thenAnswer(call -> Optional.of(new ExecutionRepository.Job(id, "PYTHON", "source", Instant.now().plusSeconds(5), 1)));
@@ -22,6 +23,15 @@ class ExecutionProcessorTest {
         when(runner.run(any())).thenReturn(success);
     }
     @AfterEach void close() { processor.close(); Thread.interrupted(); }
+    @Test void publicationFailureDoesNotRetryExecutionOrPreventDurableCompletion() throws Exception {
+        when(repository.event(id)).thenReturn(new ExecutionEvent(1,id,UUID.randomUUID(),"RUNNING",1));
+        when(events.publish(any())).thenThrow(new IllegalStateException("notification failure"));
+        assertThat(processor.process(id)).isEqualTo(ExecutionProcessor.Outcome.ACK);
+        var order=inOrder(repository,events,runner);
+        order.verify(repository).claim(eq(id),anyLong()); order.verify(repository).event(id); order.verify(events).publish(any());
+        order.verify(runner).run(any()); order.verify(repository).complete(id,1,success); order.verify(repository).event(id); order.verify(events).publish(any());
+        verify(runner,times(1)).run(any()); verify(events,times(2)).failed(id);
+    }
     @Test void retriesPersistenceWithoutRerunningSource() throws Exception {
         when(repository.complete(id, 1, success)).thenThrow(outage()).thenThrow(outage()).thenReturn(1);
         assertThat(processor.process(id)).isEqualTo(ExecutionProcessor.Outcome.ACK);

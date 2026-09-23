@@ -26,14 +26,16 @@ public class ExecutionService {
     private final ExecutionProperties properties;
     private final TransactionTemplate transactions;
     private final MeterRegistry metrics;
+    private final ExecutionEventPublisher events;
     // Covers count + insert + commit, never publication; this MVP runs one API instance.
     private final ReentrantLock admissionLock = new ReentrantLock();
     public ExecutionService(ExecutionRepository executions, RoomService rooms, ExecutionAdmission admission,
                             ExecutionJobPublisher publisher, ExecutionProperties properties,
-                            PlatformTransactionManager manager, MeterRegistry metrics) {
+                            PlatformTransactionManager manager, MeterRegistry metrics, ExecutionEventPublisher events) {
         this.executions = executions; this.rooms = rooms; this.admission = admission; this.publisher = publisher;
         this.properties = properties; this.transactions = new TransactionTemplate(manager); this.metrics = metrics;
         this.transactions.setTimeout(5);
+        this.events = events;
     }
     public Receipt submit(UUID user, UUID room, JsonNode body) {
         rooms.get(user, room);
@@ -54,6 +56,7 @@ public class ExecutionService {
         finally { admissionLock.unlock(); }
 
         // PostgreSQL commit has completed. No database transaction spans broker I/O.
+        events.publish(new ExecutionEvent(1, execution.getId(), room, "QUEUED", execution.getStateRevision()));
         var failure = publisher.publish(execution.getId());
         if (failure != null) {
             try {
@@ -64,6 +67,8 @@ public class ExecutionService {
         final Execution current;
         try { current = executions.findById(execution.getId()).orElseThrow(); }
         catch (RuntimeException error) { throw unknown(execution.getId(), error); }
+        if (failure != null) events.publish(new ExecutionEvent(1, current.getId(), current.getRoomId(),
+                current.getStatus().name(), current.getStateRevision()));
         if (current.getStatus() == ExecutionStatus.FAILED && (current.getFailureReason() == FailureReason.DISPATCH_FAILED
                 || current.getFailureReason() == FailureReason.DISPATCH_UNCONFIRMED)) {
             throw new ExecutionDispatchException(current.getId(), current.getStatus(), current.getFailureReason());

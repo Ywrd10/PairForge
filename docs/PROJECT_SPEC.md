@@ -135,8 +135,10 @@ retained as one copyable backup (source and language) before recovery replaces
 the editor; they are never replayed automatically. The backup exists only in this
 page, can be discarded, and is replaced by the latest unsynchronized draft on a
 later recovery. Copy it before navigation, reload, logout, or session expiry.
-There is no automatic reconnect. Run stays disabled and output remains empty
-until execution is implemented.
+There is no automatic reconnect. Milestone 11 enables Run when the editor and
+authenticated connection are ready. Run captures the visible source/language,
+including pending debounce edits. A bounded recent-execution selector shows
+durable results; progress/output updates arrive through events and REST reads.
 
 ---
 
@@ -180,8 +182,9 @@ clients inspect a returned ID or recent history before retrying an uncertain
 submission. Milestone 9 adds the worker's claim, result-persistence, and recovery
 path, verified with test-only fake runners. Milestone 10 supplies the real Docker
 runner behind explicit sandbox/consumption opt-in and predecessor-stop attestation.
-The default worker remains health-only. Run UI and execution events remain in
-Milestone 11; authorized REST execution detail exposes the persisted result.
+The default worker remains health-only. Milestone 11 adds Run, committed execution
+notifications, and result display. Enable the sandbox worker for the complete
+workflow; authorized REST execution detail remains the source of truth.
 
 The client should receive execution-state changes in real time.
 

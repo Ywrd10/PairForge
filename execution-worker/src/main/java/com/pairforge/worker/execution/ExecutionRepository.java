@@ -12,6 +12,10 @@ public class ExecutionRepository {
     public record Job(UUID id, String language, String source, Instant deadline, long revision) {}
     private final JdbcTemplate jdbc;
     public ExecutionRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ExecutionEvent event(UUID id) {
+        return jdbc.queryForObject("select id,room_id,status,state_revision from executions where id=?",
+                (r,n) -> new ExecutionEvent(1,r.getObject(1,UUID.class),r.getObject(2,UUID.class),r.getString(3),r.getLong(4)),id);
+    }
     public Optional<State> state(UUID id) {
         return jdbc.query("select id,status,state_revision from executions where id=?",
                 (r, n) -> new State(r.getObject(1, UUID.class), r.getString(2), r.getLong(3)), id).stream().findFirst();

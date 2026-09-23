@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EditorHandle, EditorLanguage } from './monaco'
 
-export function CodeEditor({ initialSource, language, content, readOnly = false, onChange }:
-  { initialSource: string; language: EditorLanguage; content?: string; readOnly?: boolean; onChange?: (source: string) => void }) {
+export function CodeEditor({ initialSource, language, content, readOnly = false, onChange, onReady }:
+  { initialSource: string; language: EditorLanguage; content?: string; readOnly?: boolean; onChange?: (source: string) => void; onReady?: (ready: boolean) => void }) {
   const host = useRef<HTMLDivElement>(null)
   const handle = useRef<EditorHandle | null>(null)
   const module = useRef<Promise<typeof import('./monaco')> | null>(null)
@@ -12,6 +12,7 @@ export function CodeEditor({ initialSource, language, content, readOnly = false,
   const locked = useRef(readOnly)
   const [attempt, setAttempt] = useState(0)
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading')
+  useEffect(() => { onReady?.(status === 'ready') }, [status, onReady])
 
   useEffect(() => {
     currentLanguage.current = language

@@ -71,9 +71,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Package API for browser acceptance (Java tests run in the java job)
+      - name: Package API and worker for browser acceptance (Java tests run in the java job)
         working-directory: .
-        run: bash ./mvnw --batch-mode --no-transfer-progress -pl backend -am -DskipTests package
+        run: bash ./mvnw --batch-mode --no-transfer-progress -DskipTests package
+      - name: Prepare pinned sandbox images for browser acceptance
+        working-directory: .
+        shell: pwsh
+        run: ./scripts/prepare-sandbox.ps1
       - run: npx playwright install --with-deps chromium
       - name: Browser acceptance with isolated real dependencies
         run: npm run test:e2e

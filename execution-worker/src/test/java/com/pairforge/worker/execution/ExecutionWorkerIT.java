@@ -80,8 +80,10 @@ class ExecutionWorkerIT {
         admin.declareExchange(new DirectExchange("pairforge.execution", true, false));
         admin.declareQueue(new org.springframework.amqp.core.Queue(ExecutionConsumer.QUEUE, true));
         admin.declareBinding(new Binding(ExecutionConsumer.QUEUE, Binding.DestinationType.QUEUE, "pairforge.execution", ExecutionConsumer.QUEUE, Map.of()));
+        admin.declareQueue(new org.springframework.amqp.core.Queue("execution.events", true));
+        admin.declareBinding(new Binding("execution.events", Binding.DestinationType.QUEUE, "pairforge.execution", "execution.events", Map.of()));
     }
-    @BeforeEach void clean() { adminDb.update("delete from executions"); admin.purgeQueue(ExecutionConsumer.QUEUE); fake = new FakeRunner(); }
+    @BeforeEach void clean() { adminDb.update("delete from executions"); admin.purgeQueue(ExecutionConsumer.QUEUE); admin.purgeQueue("execution.events"); fake = new FakeRunner(); }
     @AfterEach void stop() { if (app != null) { app.close(); app = null; } fake.release.countDown(); }
     @AfterAll static void closeBroker() { if (broker != null) broker.destroy(); }
     void start() { start(5000); }
@@ -106,6 +108,32 @@ class ExecutionWorkerIT {
         start(30000, Map.of("pairforge.sandbox.enabled", true, "pairforge.sandbox.java-image", sandbox.javaImage(),
                 "pairforge.sandbox.python-image", sandbox.pythonImage(), "pairforge.sandbox.namespace", sandbox.namespace(),
                 "pairforge.sandbox.workspace-root", sandbox.workspaceRoot().toString(), "pairforge.worker.cleanup-timeout-ms", 10000), null);
+    }
+    @Test void committedRunningAndTerminalEventsArePersistentAndDuplicatesNeverRerun() throws Exception {
+        fake.block=true; start(); UUID id=row("QUEUED"); send(id);
+        assertThat(fake.entered.await(5,TimeUnit.SECONDS)).isTrue();
+        var running=rabbit.receive("execution.events",2000);
+        assertThat(running).isNotNull();
+        assertThat(running.getMessageProperties().getReceivedDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
+        var json=new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(json.readValue(running.getBody(),ExecutionEvent.class)).isEqualTo(new ExecutionEvent(1,id,ROOM,"RUNNING",1));
+        assertThat(status(id)).isEqualTo("RUNNING");
+        fake.release.countDown(); terminal(id,"SUCCEEDED"); drained();
+        var done=rabbit.receive("execution.events",2000);
+        assertThat(json.readValue(done.getBody(),ExecutionEvent.class)).isEqualTo(new ExecutionEvent(1,id,ROOM,"SUCCEEDED",2));
+        assertThat(adminDb.queryForObject("select stdout from executions where id=?",String.class,id)).isEqualTo("hello");
+        send(id); drained(); assertThat(fake.calls.get()).isEqualTo(1);
+        assertThat(rabbit.receive("execution.events",100)).isNull();
+    }
+    @Test void notificationFailureDoesNotLoseResultOrRepeatSource() throws Exception {
+        var binding=new Binding("execution.events",Binding.DestinationType.QUEUE,"pairforge.execution","execution.events",Map.of());
+        admin.removeBinding(binding);
+        try {
+            start(); UUID id=row("QUEUED"); send(id); terminal(id,"SUCCEEDED"); drained();
+            send(id); drained(); assertThat(fake.calls.get()).isEqualTo(1);
+            assertThat(repository().event(id)).isEqualTo(new ExecutionEvent(1,id,ROOM,"SUCCEEDED",2));
+            assertThat(adminDb.queryForObject("select stdout from executions where id=?",String.class,id)).isEqualTo("hello");
+        } finally { admin.declareBinding(binding); }
     }
     @Test void realSandboxConsumesAndPersistsOutputWithoutDuplicateRerun() throws Exception {
         var sandbox = SandboxTestSupport.properties(temporary, "worker-" + UUID.randomUUID().toString().substring(0,8), Map.of());

@@ -10,10 +10,11 @@ public class ExecutionProcessor implements AutoCloseable {
     private final ExecutionRepository repository;
     private final ExecutionRunner runner;
     private final WorkerProperties properties;
+    private final ExecutionEventPublisher events;
     private final ExecutorService runs = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("execution-runner").factory());
     private final ExecutorService cleanup = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("execution-cleanup").factory());
-    public ExecutionProcessor(ExecutionRepository repository, ExecutionRunner runner, WorkerProperties properties) {
-        this.repository = repository; this.runner = runner; this.properties = properties;
+    public ExecutionProcessor(ExecutionRepository repository, ExecutionRunner runner, WorkerProperties properties, ExecutionEventPublisher events) {
+        this.repository = repository; this.runner = runner; this.properties = properties; this.events = events;
     }
     public Outcome process(UUID id) {
         var state = retry(() -> repository.state(id));
@@ -36,6 +37,7 @@ public class ExecutionProcessor implements AutoCloseable {
             return Outcome.ACK;
         }
         var job = claimed.get();
+        notifyCommitted(job.id()); // Publication time consumes the original claim deadline.
         final ExecutionResult result = run(job, claimStarted);
         persist(job.id(), job.revision(), result);
         return Outcome.ACK;
@@ -109,6 +111,11 @@ public class ExecutionProcessor implements AutoCloseable {
             }
             return true;
         });
+        notifyCommitted(id);
+    }
+    private void notifyCommitted(UUID id) {
+        try { events.publish(repository.event(id)); }
+        catch (RuntimeException unavailable) { events.failed(id); }
     }
     private <T> T retry(Supplier<T> operation) {
         for (int attempt = 1; ; attempt++) {

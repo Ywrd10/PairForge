@@ -105,4 +105,4 @@ management:
         liveness:
           include: livenessState
         readiness:
-          include: readinessState,db,rabbit,redis
+          include: readinessState,db,rabbit,redis,executionEvents

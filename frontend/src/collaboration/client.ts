@@ -3,6 +3,8 @@ import type { IMessage } from '@stomp/stompjs'
 import { collaborationUrl, isRecord } from '../api/client'
 import type { Language } from '../api/rooms'
 import type { Session } from '../auth/session'
+import { isEvent } from '../api/executions'
+import type { ExecutionEvent } from '../api/executions'
 
 interface Document { content: string; language: Language; version: number; generationId: string }
 interface Event { type: string; roomId: string | null; document: Document | null; clientUpdateId: string | null; code: string | null }
@@ -47,7 +49,8 @@ export class CollaborationClient {
   private displayedVersion = -1
   private sawReset = false
   private flight: { id: string; content: string; language: Language } | null = null
-  constructor(private session: Session, private room: string, content: string, language: Language) {
+  constructor(private session: Session, private room: string, content: string, language: Language,
+    private execution?: { event: (event: ExecutionEvent) => void; ready: () => void }) {
     this.state = { content, language, ready: false, connected: false, pending: false, notice: 'Connecting…', connecting: false, backup: null }
   }
   getSnapshot = () => this.state
@@ -80,6 +83,15 @@ export class CollaborationClient {
         try { this.receive(parse(message.body)) } catch { this.fail('Invalid collaboration response. Local edits are not synchronized.') }
       }
       try {
+        client.subscribe(`/topic/rooms/${this.room}/executions`, message => {
+          if (!active()) return
+          try {
+            if (bytes(message.body) > 1024) throw new Error('Oversized execution event')
+            const event: unknown = JSON.parse(message.body)
+            if (!isEvent(event) || event.roomId !== this.room) throw new Error('Invalid execution event')
+            this.execution?.event(event)
+          } catch { this.fail('Invalid execution notification. Reconnect and use Refresh Status.') }
+        })
         client.subscribe('/user/queue/collaboration', receive)
         client.subscribe(`/topic/rooms/${this.room}/document`, receive)
         client.publish({ destination: `/app/rooms/${this.room}/snapshot`, body: '{}', headers: { 'content-type': 'application/json' } })
@@ -129,6 +141,7 @@ export class CollaborationClient {
         ready: true, connected: true, connecting: false,
         notice: this.sawReset || generationChanged ? 'Connected — document reset: a new Redis document was initialized.'
           : 'Connected — synchronized in Redis.' })
+      this.execution?.ready()
       return
     }
     if (changed || event.type === 'SNAPSHOT') {

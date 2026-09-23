@@ -10,7 +10,12 @@ class RabbitConnectionConfiguration {
     @Bean
     ConnectionFactoryCustomizer rabbitHandshakeTimeout(RabbitProperties properties) {
         // TCP connect timeout does not bound the subsequent AMQP handshake.
-        return factory -> factory.setHandshakeTimeout(
-                Math.toIntExact(properties.getConnectionTimeout().toMillis()));
+        return factory -> {
+            int timeout = Math.toIntExact(properties.getConnectionTimeout().toMillis());
+            factory.setHandshakeTimeout(timeout);
+            factory.useNio();
+            factory.setNioParams(new com.rabbitmq.client.impl.nio.NioParams()
+                    .setWriteEnqueuingTimeoutInMs(timeout).setWriteQueueCapacity(100));
+        };
     }
 }

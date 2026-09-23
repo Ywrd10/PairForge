@@ -11,6 +11,11 @@ import java.time.Instant;
 import java.util.Collection;
 
 public interface ExecutionRepository extends JpaRepository<Execution, UUID> {
+    interface Notification {
+        UUID getId(); UUID getRoomId(); ExecutionStatus getStatus(); long getStateRevision();
+    }
+    @Query("select e.id as id, e.roomId as roomId, e.status as status, e.stateRevision as stateRevision from Execution e where e.id = :id")
+    java.util.Optional<Notification> notification(@Param("id") UUID id);
     Slice<Execution> findByRoomIdOrderByCreatedAtDescIdDesc(UUID roomId, Pageable pageable);
 
     long countByStatusIn(Collection<ExecutionStatus> statuses);

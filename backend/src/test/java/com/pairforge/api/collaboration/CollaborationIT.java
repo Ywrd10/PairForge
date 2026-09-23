@@ -101,6 +101,19 @@ class CollaborationIT {
         throw new AssertionError("Missing " + type);
     }
     @AfterEach void cleanup() { peers.forEach(peer -> peer.socket.abort()); }
+    @Test void executionSubscriptionsUseSameRoomAuthorityAndClientsCannotForgeEvents() throws Exception {
+        var owner=actor(); var stranger=actor(); var room=room(owner);
+        var allowed=connect(owner.token()); join(allowed,room);
+        allowed.send("SUBSCRIBE","id:execution\ndestination:/topic/rooms/"+room+"/executions","");
+        // FIFO snapshot roundtrip proves the third subscription was accepted.
+        allowed.send("SEND","destination:/app/rooms/"+room+"/snapshot\ncontent-type:application/json","{}");
+        event(allowed,"SNAPSHOT");
+        var denied=connect(stranger.token());
+        denied.send("SUBSCRIBE","id:execution\ndestination:/topic/rooms/"+room+"/executions",""); denied.awaitClosed();
+        allowed.send("SEND","destination:/topic/rooms/"+room+"/executions\ncontent-type:application/json","{}"); allowed.awaitClosed();
+        var crossRoom=connect(owner.token()); join(crossRoom,room);
+        crossRoom.send("SUBSCRIBE","id:execution\ndestination:/topic/rooms/"+room(owner)+"/executions",""); crossRoom.awaitClosed();
+    }
     static class Peer implements WebSocket.Listener {
         WebSocket socket;
         final BlockingQueue<String> frames = new LinkedBlockingQueue<>();

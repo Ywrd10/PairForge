@@ -661,11 +661,13 @@ This is acceptable for the MVP and should be documented.
 
 ### Milestone 6 wire contract and bounds
 
-- One native STOMP connection serves one room. Subscribe first to
-  `/user/queue/collaboration` for session-specific replies, then to
-  `/topic/rooms/{roomId}/document` for accepted room changes. Only these two
-  subscriptions are allowed. SEND is restricted to `/app/rooms/{roomId}/snapshot`
-  and `/app/rooms/{roomId}/update`; both require the subscriptions and a fresh
+- One native STOMP connection serves one room. Before sending document requests,
+  subscribe to `/user/queue/collaboration` for session-specific replies and
+  `/topic/rooms/{roomId}/document` for accepted room changes. Milestone 11 permits
+  a third subscription, `/topic/rooms/{roomId}/executions`, for the same authorized
+  room. No duplicate or other subscriptions are allowed. SEND is restricted to
+  `/app/rooms/{roomId}/snapshot` and `/app/rooms/{roomId}/update`; both require the
+  two collaboration subscriptions and a fresh
   PostgreSQL membership check. Client identity comes solely from CONNECT.
 - The snapshot request is `{}`. An update contains `generationId`, positive
   connection-local `sequence`, UUID `clientUpdateId`, `content`, and `language`
@@ -869,7 +871,7 @@ Unknown fields, non-string values, NUL, and malformed Unicode are rejected.
 Source is limited to 65,536 UTF-8 bytes, independently of the 400,000-byte JSON
 transport limit (which permits JSON escaping); both fixed-length and chunked
 bodies are bounded. Other authentication/room JSON limits remain 4,096 bytes.
-Empty source and syntax/entry-point errors are left to the future sandbox.
+Empty source and syntax/entry-point errors are handled by the worker sandbox.
 The API never compiles or interprets source. Filenames are determined by language,
 not accepted from clients. No Redis document read changes the submitted snapshot.
 
@@ -1342,6 +1344,66 @@ Not every state transition is guaranteed to reach a connected browser. REST
 reconciliation on reconnect and an explicit Refresh Status action recover durable
 state; show a delayed/unknown status hint after a bounded UI wait. Do not claim
 durable notifications or exactly-once event delivery. An outbox is future work.
+
+### Milestone 11 event and browser contract
+
+- The API owns durable `execution.events` topology on `pairforge.execution` with
+  routing key `execution.events`, alongside the existing jobs queue. Both processes
+  publish JSON with exactly `schemaVersion: 1`, `executionId`, `roomId`, `status`,
+  and `stateRevision`. The status identifies the conceptual event above; there is
+  no separate type field. No source, output, identity token, or invitation travels
+  in the notification. Messages are persistent, with a stable message ID of
+  `executionId:stateRevision` and a fresh confirm correlation ID on each attempt.
+- API publication follows the QUEUED commit and precedes job dispatch. Dispatch
+  failure publication uses the committed authoritative state, including a worker
+  transition that won the race. Worker publication follows RUNNING, final-result,
+  and restart-recovery commits. Reading/publishing a notification cannot roll back
+  a result or rerun source. RUNNING publication time consumes the existing overall
+  execution deadline. Job acknowledgement follows persistence and bounded event
+  attempts; a lost broker channel still follows the existing worker failure latch.
+- `pairforge.execution-events.attempts` defaults to 2 (1–3),
+  `confirm-timeout-ms` to 500 (50–2000), and `retry-backoff-ms` to 100 (0–500),
+  independently in each process. Connection, handshake, channel checkout, and
+  write enqueue are also bounded. Exhaustion logs only safe identifiers and
+  increments `pairforge.execution.events.publish.failures`.
+- The API consumes with one consumer, prefetch 1, and manual acknowledgements.
+  It rejects malformed/oversized (>1024 bytes), duplicate-key, trailing, and
+  unsupported-schema envelopes. A metadata-only PostgreSQL read verifies room,
+  revision, and status before broadcasting the current committed revision; older
+  intermediate events may be coalesced. A 1024-entry revision cache suppresses
+  duplicates; eviction/restart can rebroadcast the current state without making
+  it older. This is not durable deduplication.
+- Local database/broadcast failures receive at most three attempts, with 100/200
+  ms backoff, then rejection without requeue and a bounded-reason
+  `pairforge.execution.events.consume.failures` counter. Invalid/mismatched events
+  cannot direct a broadcast to another room. A process/channel crash may redeliver
+  an unacknowledged event. No browser acknowledgement or absent subscriber holds a
+  broker delivery open. Consumer connection recovery is automatic; API readiness
+  includes the event listener, while liveness remains independent.
+- The browser reuses its one authenticated STOMP connection and subscribes to
+  execution notifications before requesting the document snapshot. Its ready
+  callback reconciles execution REST state on initial connection and manual
+  reconnect. Existing membership, origin, expiry, and transport controls apply;
+  client SEND to execution topics is prohibited.
+- Run requires a loaded editor and ready connection. It sends one POST with the
+  visible source and language, without waiting for collaboration debounce. Only
+  an in-flight POST disables additional submissions; subsequent deliberate runs
+  are new executions subject to existing server limits. HTTP uncertainty preserves
+  a validated execution ID when present and warns the user to inspect status or
+  recent executions. There is no automatic POST retry.
+- The UI retains at most 20 recent summaries, one selected detail, a 128-entry
+  event-revision cache, and one coalesced refresh request. Events trigger REST
+  reads after a 100 ms coalescing window. Monotonic revisions and terminal-state
+  protection prevent stale responses from regressing results. Selection remains
+  stable when other executions finish; submitting a new run selects its receipt
+  unless the user changed selection meanwhile. Room/session disposal cancels
+  requests and ignores late responses. Output renders as text, never HTML.
+- Missing progress for 30 seconds shows a delayed-status hint, not a timeout
+  result. This timer sends no request. Refresh Status and reconnect recover through
+  authorized REST history/detail; there is no continuous polling. The committed
+  state-to-event crash window remains an approved limitation. Browser acceptance
+  starts the real worker with a restricted database role and isolated dependencies;
+  required Docker execution tests are never skipped.
 
 ---
 

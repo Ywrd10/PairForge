@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 @Component
 @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(type = org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
 public class CollaborationSecurity implements ChannelInterceptor {
-    private static final Pattern TOPIC = Pattern.compile("/topic/rooms/([0-9a-f-]{36})/document");
+    private static final Pattern TOPIC = Pattern.compile("/topic/rooms/([0-9a-f-]{36})/(document|executions)");
     private static final Pattern SEND = Pattern.compile("/app/rooms/([0-9a-f-]{36})/(snapshot|update)");
     private final CollaborationSessions sessions;
     private final JwtDecoder decoder;
@@ -47,7 +47,7 @@ public class CollaborationSecurity implements ChannelInterceptor {
                     String destination = headers.getDestination();
                     if (headers.getCommand() == StompCommand.SUBSCRIBE) {
                         String subscription = headers.getSubscriptionId();
-                        if (subscription == null || subscription.length() > 64 || state.subscriptions.size() >= 2
+                        if (subscription == null || subscription.length() > 64 || state.subscriptions.size() >= 3
                                 || state.subscriptions.containsKey(subscription) || state.subscriptions.containsValue(destination)) throw new IllegalArgumentException();
                         if (!"/user/queue/collaboration".equals(destination)) authorize(state, destination, TOPIC);
                         state.subscriptions.put(subscription, destination);
