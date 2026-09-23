@@ -32,7 +32,7 @@ server:
   address: 127.0.0.1
   port: ${WORKER_PORT:8081}
 
-# No runtime runner exists until Milestone 10. Enabling without a runner fails startup.
+# Explicit sandbox profile/configuration is required. Enabling without a runner fails startup.
 pairforge:
   worker:
     enabled: false

@@ -41,11 +41,15 @@ public class ExecutionProcessor implements AutoCloseable {
         return Outcome.ACK;
     }
     public void recover() {
+        try { runner.initialize(); }
+        catch (Exception error) { throw new IllegalStateException("Runner initialization failed", error); }
         for (var state : retry(repository::interrupted)) {
             stop(state.id());
             persist(state.id(), state.revision(), ExecutionResult.interrupted());
         }
     }
+    public void reconcile() throws Exception { runner.reconcile(); }
+    public long reconciliationMs() { return runner.reconciliationMs(); }
     private ExecutionResult run(ExecutionRepository.Job job, long claimStarted) {
         // Database/worker clocks may differ. A monotonic local budget prevents skew
         // or slow claim retries from extending the configured overall deadline.
@@ -85,7 +89,10 @@ public class ExecutionProcessor implements AutoCloseable {
         }
     }
     private void stop(UUID id) {
-        var stopped = cleanup.submit(() -> { runner.stop(id); return null; });
+        awaitCleanup(() -> { runner.stop(id); return null; });
+    }
+    private void awaitCleanup(Callable<Void> operation) {
+        var stopped = cleanup.submit(operation);
         try { stopped.get(properties.cleanupTimeoutMs(), TimeUnit.MILLISECONDS); }
         catch (InterruptedException error) {
             stopped.cancel(true); Thread.currentThread().interrupt(); throw new IllegalStateException("Cleanup interrupted");
@@ -113,5 +120,17 @@ public class ExecutionProcessor implements AutoCloseable {
         try { Thread.sleep(properties.retryBackoffMs() * attempt); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException("Retry interrupted"); }
     }
-    @Override public void close() { runs.shutdownNow(); cleanup.shutdownNow(); }
+    @Override public void close() {
+        runs.shutdownNow();
+        try {
+            // Keep the shutdown hook alive long enough for the sandbox's bounded finally-cleanup.
+            if (!runs.awaitTermination(properties.cleanupTimeoutMs(), TimeUnit.MILLISECONDS))
+                throw new IllegalStateException("Runner shutdown could not be verified; restart recovery required");
+            // Listener cancellation and executor shutdown can both interrupt a run's finally block.
+            // A stopped host thread alone is not proof its container was removed.
+            awaitCleanup(() -> { runner.reconcile(); return null; });
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt(); throw new IllegalStateException("Worker shutdown interrupted; restart recovery required");
+        } finally { cleanup.shutdownNow(); }
+    }
 }

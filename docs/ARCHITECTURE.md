@@ -1013,8 +1013,10 @@ Cleanup must occur even when execution fails.
 
 The flow above is the complete target. M9 implements consumption, claims, the
 runner interface, persistence, and recovery only. Fake runners live exclusively
-in test sources and never interpret submissions. No runner ships in the runtime
-artifact, no Docker socket is introduced, and no execution events are published.
+in test sources and never interpret submissions. M10 now supplies the explicitly
+enabled Docker runner described in §12; the default consumer remains disabled.
+No Docker socket reaches the API/submission containers, and no execution events
+are published until M11.
 
 `pairforge.worker` configuration (Spring property/environment overrides apply):
 
@@ -1022,8 +1024,8 @@ artifact, no Docker socket is introduced, and no execution events are published.
 | --- | --- | --- |
 | `enabled` | false | Consumption opt-in; startup fails without an ExecutionRunner |
 | `previous-worker-stopped` | false | Explicit operator attestation required before enabled startup recovery |
-| `deadline-ms` | 30000 | Overall claim-to-run deadline, 100–300000 ms; language limits belong to M10 |
-| `cleanup-timeout-ms` | 2000 | Bound each stop call and wait for runner exit, 100–10000 ms |
+| `deadline-ms` | 30000 | Overall claim-to-run deadline, 100–300000 ms; also caps M10 phase budgets |
+| `cleanup-timeout-ms` | 2000 | Bound each stop call and wait for runner exit, 100–10000 ms; sandbox profile requires 10000 |
 | `retry-backoff-ms` | 100 | Backoff base, 0–1000 ms; waits of base and twice base |
 
 Consumption and prefetch are fixed at one. Messages must be JSON of at most
@@ -1155,6 +1157,118 @@ exceptions, timeout, and worker restart. Include a periodic orphan/deadline
 reconciliation pass. Docker CLI/API timeouts must be bounded too. Docker daemon
 access belongs only to the trusted worker orchestrator, never to the API or
 submission. A process split alone does not protect a shared host from escape.
+
+### Milestone 10 implementation and configuration
+
+The trusted worker invokes only the Docker CLI through Java `ProcessBuilder`
+argument lists, with bounded waits and concurrent output drains. It never runs
+an interpreter/compiler on the host and has no fallback. Build the two images
+from `infra/sandbox/` using `scripts/prepare-sandbox.ps1`; bases are pinned by
+digest. The script resolves immutable local image IDs for worker configuration.
+Jobs use `--pull=never`; missing images or unavailable required controls fail
+closed. Image updates require rebuilding, retesting, and restarting the worker.
+
+Opt in with the `sandbox` Spring profile plus
+`pairforge.worker.previous-worker-stopped=true`. This is an operator attestation,
+not fencing. Run exactly one worker and retain the same Docker engine, sandbox
+namespace, and workspace root across restarts. The workspace root must be local,
+worker-owned, canonical (no symlink ancestors), and contain no comma. Namespace
+is a short lowercase identifier; it scopes labels and cleanup, not security.
+
+Each job stages exactly one UTF-8 source file under a generated UUID directory.
+Only that file is bind-mounted read-only. A non-root `sleep` process holds the
+container while fixed `docker exec` commands compile into `/work` and execute
+`Main`, or execute isolated Python with `-I -S -B`. No `-i`/TTY is used; stdin is
+closed. Java disables annotation processing, uses a bounded compiler heap, and
+uses Serial GC for predictable small-container overhead. Python's image removes
+pip/site packages. Compilation artifacts stay inside tmpfs. Source is never
+interpolated into command arguments, shell scripts, image names, or paths.
+
+Before any source command, inspect container configuration and verify actual
+cgroup memory/swap/PID/CPU limits, UID, effective capabilities, no-new-privileges,
+and seccomp inside the container. Startup preflight exercises both images using
+empty source files and fixed compiler/interpreter version commands, so a wrong
+language image cannot admit work. The root filesystem is read-only; `/work` and `/tmp` are
+bounded noexec/nosuid/nodev tmpfs, and `/dev/shm` is separately bounded. Network is
+`none`; no host namespace, extra device, credentials, or Docker socket is passed.
+Host Docker proxy variables are explicitly cleared and checked so automatic
+client proxy configuration cannot leak credentials into submissions. On POSIX
+hosts, staging directories are private and source is readable through only the
+individual file bind mount; Windows uses the worker-owned directory's ACLs.
+Container logs are disabled; stdout and stderr share one 64 KiB budget across
+compile/run phases. Invalid UTF-8, incomplete trailing characters, and NUL bytes
+are discarded to produce PostgreSQL-safe text without expanding that budget.
+
+`pairforge.sandbox` properties use Spring environment naming: uppercase, dots
+become underscores, and hyphens are removed (for example,
+`PAIRFORGE_SANDBOX_JAVAMEMORYMIB`). The `sandbox` profile additionally provides the
+explicit friendly aliases `PAIRFORGE_SANDBOX_JAVA_IMAGE`,
+`PAIRFORGE_SANDBOX_PYTHON_IMAGE`, `PAIRFORGE_SANDBOX_WORKSPACE_ROOT`, and
+`PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED` used by the README startup commands.
+
+| Property | Default | Supported range / purpose |
+| --- | --- | --- |
+| `enabled` | false | Explicit opt-in; `sandbox` profile sets true and enables consumption |
+| `docker-executable` | docker | Trusted local CLI path; never user input |
+| `java-image`, `python-image` | required when enabled | Trusted immutable digest/local `sha256:` image ID |
+| `namespace` | pairforge | `[a-z][a-z0-9-]{0,31}`; stable across restarts |
+| `workspace-root` | .tmp/execution-workspaces | Stable local host staging root; namespace subdirectory underneath |
+| `java-memory-mib`, `python-memory-mib` | 512, 128 | 128–1024 / 32–512; memory-swap equals memory, disabling swap |
+| `java-pids`, `python-pids` | 128, 32 | 32–256 / 8–128, including container helper processes |
+| `cpus` | 1.0 | 0.1–2 CPU quota |
+| `workspace-mib`, `temp-mib`, `shm-mib` | 32, 8, 4 | 1–64 / 1–16 / 1–16; charged to container memory |
+| `source-bytes`, `output-bytes` | 65536 each | 1–65536; output is combined across both streams/phases |
+| `command-timeout-ms` | 1500 | 100–3000 per Docker control request; cleanup has a separate 10000 ms worker budget |
+| `preparation-ms`, `compilation-ms` | 10000 each | 1000–15000 / 100–15000; compilation applies to Java |
+| `runtime-ms` | 5000 | 100–10000; preparation/compilation/runtime also obey overall deadline |
+| `reconciliation-ms` | 2000 | 500–10000 between maintenance passes |
+
+`MEMORY_LIMIT` uses Docker/cgroup OOM evidence, never source output. Ordinary
+compile/nonzero program failures remain `COMPILATION_ERROR`/`RUNTIME_ERROR`.
+JVM allocation errors without a kernel OOM kill are language/runtime failures;
+the worker does not trust an application-selected exit code as proof of OOM.
+Output overflow yields `FAILED/OUTPUT_LIMIT` with truncation flagged; phase or
+overall deadline yields `TIMED_OUT`. Docker/control failures require verified
+cleanup before the existing processor can persist `INFRASTRUCTURE_INTERRUPTION`.
+Failure to verify cleanup leaves the job unacknowledged and latches readiness
+DOWN; it never licenses further work or host execution.
+
+Containers carry namespace, execution-ID, and durable-deadline labels. `stop` is
+idempotent and checks ownership before removal; only fixed source filenames in
+canonical UUID directories are deleted. Startup removes predecessor resources
+before recovery writes. Periodic reconciliation removes owned orphans and stops
+active work past its monotonic deadline, independently of a blocked exec wait.
+It keeps running after consumption is paused, allowing cleanup when Docker
+recovers; operator restart is still required to resume consumption. Unexpected
+workspace entries, ownership mismatches, or more than 100 tracked resources
+fail closed for operator inspection. Cleanup and terminal persistence are ordered
+as in M9; terminal duplicates and stale writes cannot rerun or replace results.
+Graceful shutdown stops consumption, interrupts and joins the run thread, then
+performs bounded final reconciliation before dependencies close. Both the join
+and reconciliation have the worker cleanup timeout; a terminated host thread is
+not treated as proof of container cleanup. Failure remains explicit and requires
+restart recovery, without acknowledging unfinished work.
+
+After worker termination or Docker loss, an orphan can survive until Docker and
+the worker return: Docker does not supply an independent wall-clock TTL. Bounded
+CPU/memory/PIDs/storage and disabled network still apply. Confirm the predecessor
+is dead, restore Docker, keep the same root/namespace, and restart; interrupted
+RUNNING rows become FAILED only after cleanup. Do not manually requeue/re-execute
+started work. Unknown files/labels require inspection, not recursive deletion or
+a global Docker prune. A dedicated execution host/VM remains required for deployed
+use (§18); local controlled tests do not establish hostile production isolation.
+
+Local measurement (2026-09-21): Docker Desktop Linux Engine 29.4.3, WSL2 kernel
+6.6.114.1, 12 visible CPUs and 8,286,998,528 bytes engine memory. Pinned images
+contain Temurin 21.0.12+8 and Python 3.13.15; the host build uses JDK 21.0.9.
+With warm images, one standard-library Java fixture recorded 45,080,576 bytes
+of cgroup peak memory (including compilation) and 2,720 ms runner duration;
+Python recorded 5,664,768 bytes and 1,612 ms. Duration includes preparation and
+result inspection, excludes queue wait and final cleanup. These are controlled
+single-job samples, not throughput/production benchmarks or proposed lower memory
+limits. Exhaustion fixtures separately verify total container memory enforcement;
+a half-CPU fixture proves actual throttling. Tests emit fresh measurements on
+each run, and every sandbox test verifies cleanup.
 
 ---
 

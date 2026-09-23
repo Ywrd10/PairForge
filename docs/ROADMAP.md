@@ -9,10 +9,10 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 9 (DONE). Worker claims, result persistence,
-acknowledgements, and failure-recovery acceptance checks pass locally with
-test-only fake runners; runtime consumption remains disabled. Milestone 10 remains
-TODO and requires a separate implementation request.
+Current milestone: Milestone 10 (DONE). Opt-in Docker Java/Python execution,
+resource limits, result persistence, and failure/cleanup acceptance checks pass
+locally. The default worker remains health-only. Milestone 11 remains TODO and
+requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1132,7 +1132,7 @@ execution stays disabled until Milestone 10; no host-process fallback is allowed
 
 ## Milestone 10 — Docker Sandbox
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1170,6 +1170,96 @@ Acceptance test:
 All source, including compilation, executes only inside constrained containers,
 never the API or worker host process. Required safety/failure tests pass in an
 isolated execution test environment and leave no unaccounted containers/workspaces.
+
+### Verification (2026-09-21)
+
+| Acceptance criterion | Evidence |
+| --- | --- |
+| Real isolated Java/Python | Real Docker compilation/execution, standard-library usage, closed stdin, Java compile/runtime errors, and Python runtime errors pass; PostgreSQL/RabbitMQ integration persists real output |
+| Mandatory controls | Inspect and kernel preflight verify non-root UID, no capabilities, no-new-privileges, seccomp, private namespaces, disabled network/swap, read-only source/root, and bounded CPU/memory/PIDs/storage before source runs |
+| Time bounds | Separate preparation, Java compilation, runtime, and overall deadlines tested; periodic reconciliation stops overdue activity independently of a blocked exec wait |
+| Memory/CPU/process/storage/network | Both languages exceed total container memory in controlled fixtures; half-CPU throttling, refused child creation, full workspace/tmp/shared-memory filesystems, protected-path writes, and denied external connectivity are tested |
+| Bounded output/source | Concurrent stdout/stderr flood terminates with exactly 64 KiB combined retention and OUTPUT_LIMIT; invalid UTF-8/NUL handling, source-size rejection, and application exit-code spoofing are tested; Docker logs disabled |
+| Fail closed | Missing controls, wrong language image, missing Docker, unsafe configuration/source, and unverified cleanup cannot authorize execution; host proxy settings are cleared and checked |
+| Cleanup/recovery | Normal/error/timeout cleanup, startup and periodic orphan cleanup, ownership checks, noncanonical workspace rejection, shutdown interruption, and graceful shutdown final reconciliation pass; actual worker JVM kill leaves an orphan that restart removes before interruption persistence |
+| Durable processing contract | Duplicates do not rerun completed executions; stale final writes fail; database/broker loss, manual acknowledgements, bounded retries, and readiness latching remain tested |
+
+- Added a worker-local Docker CLI adapter, shared bounded output collector,
+  validated sandbox configuration, and one-container-per-job runner. Source is
+  written only to a fixed read-only bind file; compilation artifacts remain in
+  bounded tmpfs. No compiler/interpreter runs on the host. No runtime dependency,
+  schema migration, additional service, execution event, or frontend feature was
+  introduced.
+- Added digest-pinned Java/Python image definitions, repeatable image preparation,
+  an explicit sandbox profile/launcher flag, and required CI image preparation.
+  Default startup stays disabled for execution. The documented environment aliases
+  and predecessor-stop attestation are exercised by a real child worker.
+- Resource defaults and measured local fixtures are recorded in Architecture §12:
+  Java 512 MiB/128 PIDs, Python 128 MiB/32 PIDs, one CPU, no swap, 32/8/4 MiB
+  work/tmp/shared memory, 10-second preparation/compilation, 5-second runtime, and
+  the existing 30-second overall deadline. Tests used Docker Desktop's Linux VM
+  with cgroup v2/seccomp and controlled fixtures, not arbitrary hostile workloads.
+- Java 21 root `clean verify` passed **302 tests** before final shutdown/startup
+  refinements. The final full worker `verify` passes **86 tests** (29 unit, 57
+  integration). Together with the unchanged API's 219 passing tests, all **305
+  current Java tests** pass with zero failures/errors/skips. Final JUnit report
+  totals confirm 78 unit and 227 integration cases.
+- Node 24 clean install, lint, typecheck, **54 frontend tests**, production build,
+  and **nine browser tests** pass with browser retries disabled. Credential and
+  launcher checks pass on PowerShell 7/5.1; script parsing, Actionlint, local-secret
+  exclusion, and whitespace checks pass. npm reports zero vulnerabilities. The
+  existing Monaco bundle-size advisory remains.
+- Initial fixture failures distinguished a one-CPU workload from actual throttling,
+  JVM allocation errors from cgroup OOM, and reliable source-start observation
+  from process-list formatting. A real shutdown regression exposed cancellation
+  interrupting cleanup even after the host thread exited. Shutdown now joins the
+  run thread and performs bounded final reconciliation in the lifecycle stop
+  phase before dependencies close; the regression and full worker suite pass.
+- All sandbox tests check resource cleanup. Final Docker inspection finds **zero
+  sandbox containers**, and execution workspaces are cleaned. No required local
+  acceptance check remains skipped, failing, or unverified. There is no observed
+  flakiness in the final runs.
+- Remaining documented limits: one worker with operator predecessor-stop
+  attestation; a crashed worker/Docker outage can leave a constrained container
+  until recovery; Docker is not perfect hostile-workload isolation; approved
+  dual-write windows remain. Dedicated deployed worker hosting is still M15.
+  M10 changes are uncommitted/unpushed, so **remote GitHub Actions for M10 is
+  unverified**. M11 Run UI and committed execution events have not begun.
+
+### Review verification (2026-09-22)
+
+- Re-read the agent instructions, specification, architecture, and milestone
+  criteria, then reviewed all M10 runtime, configuration, image, launcher, CI,
+  and test changes. Every acceptance row above was reverified. No blocking code
+  defect, unnecessary abstraction, dead runtime code, or architectural drift was
+  identified. No API/frontend feature, schema change, or M11 event path was added.
+  Corrected a stale README sentence that still described the sandbox as future
+  work; this review required no application-code changes.
+- Rebuilt both pinned sandbox images. Java 21 root `clean verify` passed all
+  **305 tests** in one run: API 49 unit/170 integration and worker 29 unit/57
+  integration, with **zero failures, errors, or skips**. This includes actual
+  compiler/runtime execution, all resource/network/output limits, fail-closed
+  controls, deadlines, graceful shutdown, worker kill/restart, orphan cleanup,
+  dependency failures, duplicate handling, and stale-write protection. Packaged
+  worker inspection confirms test-only runners/fixtures are absent.
+- Node 24 `npm ci`, lint, typecheck, **54 unit tests**, production build, and
+  **nine browser tests** passed; browser retries remain disabled. npm audit
+  reports zero vulnerabilities. PowerShell 7/5.1 credential/launcher tests,
+  script parsing, Actionlint, Compose configuration, local-secret exclusion,
+  and tracked/new-file whitespace checks passed.
+- Docker was initially unavailable because Desktop's inference and secrets
+  engine sockets were inaccessible. Moved only the stopped runtime socket
+  directories to backups and restarted Desktop, preserving images, volumes,
+  and settings. The complete container suite then passed on Linux Engine
+  29.4.3 with cgroup v2 and built-in seccomp. Final inspection found zero sandbox
+  or browser-test containers, no running containers, and no leftover source
+  files in the local execution workspace root; test workspace assertions pass.
+- No required local check remains failing, skipped, or unverified, and no test
+  flakiness was observed in this review. Existing Monaco bundle-size and JVM
+  instrumentation advisories remain non-blocking. Remote GitHub Actions for
+  these uncommitted/unpushed M10 changes remains **unverified**. The documented
+  single-worker, Docker-isolation, crash-recovery, and dual-write limitations
+  remain unchanged. **Milestone 10 remains DONE; Milestone 11 remains TODO.**
 
 ---
 

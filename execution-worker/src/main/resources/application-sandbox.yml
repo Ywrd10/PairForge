@@ -1,0 +1,11 @@
+# Explicit opt-in. The operator must also attest that the previous worker has stopped.
+pairforge:
+  worker:
+    enabled: true
+    cleanup-timeout-ms: 10000
+    previous-worker-stopped: ${PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED:false}
+  sandbox:
+    enabled: true
+    java-image: ${PAIRFORGE_SANDBOX_JAVA_IMAGE}
+    python-image: ${PAIRFORGE_SANDBOX_PYTHON_IMAGE}
+    workspace-root: ${PAIRFORGE_SANDBOX_WORKSPACE_ROOT:.tmp/execution-workspaces}

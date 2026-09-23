@@ -1,6 +1,7 @@
 package com.pairforge.worker.execution;
 
 import com.pairforge.worker.ExecutionWorkerApplication;
+import com.pairforge.worker.sandbox.*;
 import java.net.URI;
 import java.net.http.*;
 import java.nio.file.*;
@@ -50,7 +51,7 @@ class ExecutionWorkerIT {
     static class FakeRunner implements ExecutionRunner {
         final AtomicInteger calls = new AtomicInteger(), stops = new AtomicInteger();
         final CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
-        volatile boolean block, failCleanup, pauseDatabase, denyResultWrite;
+        volatile boolean block, failCleanup, failReconciliation, pauseDatabase, denyResultWrite;
         volatile ExecutionRepository.Job snapshot;
         @Override public ExecutionResult run(ExecutionRepository.Job job) throws Exception {
             calls.incrementAndGet(); snapshot = job; entered.countDown();
@@ -64,6 +65,7 @@ class ExecutionWorkerIT {
             if (failCleanup) throw new IllegalStateException("Injected cleanup failure");
             release.countDown();
         }
+        @Override public void reconcile() { if (failReconciliation) throw new IllegalStateException("Injected reconciliation failure"); }
     }
     @BeforeAll static void initialize() throws Exception {
         Flyway.configure().dataSource(PG.getJdbcUrl(), PG.getUsername(), PG.getPassword())
@@ -84,6 +86,9 @@ class ExecutionWorkerIT {
     @AfterAll static void closeBroker() { if (broker != null) broker.destroy(); }
     void start() { start(5000); }
     void start(long deadlineMs) {
+        start(deadlineMs, Map.of(), fake);
+    }
+    void start(long deadlineMs, Map<String, Object> overrides, ExecutionRunner runner) {
         Map<String, Object> p = new HashMap<>();
         p.put("spring.datasource.url", PG.getJdbcUrl()); p.put("spring.datasource.username", WORKER); p.put("spring.datasource.password", PASSWORD);
         p.put("spring.rabbitmq.host", RABBIT.getHost()); p.put("spring.rabbitmq.port", RABBIT.getAmqpPort());
@@ -91,10 +96,100 @@ class ExecutionWorkerIT {
         p.put("pairforge.worker.enabled", true); p.put("pairforge.worker.previous-worker-stopped", true);
         p.put("pairforge.worker.deadline-ms", deadlineMs); p.put("pairforge.worker.cleanup-timeout-ms", 500);
         p.put("pairforge.worker.retry-backoff-ms", 10); p.put("server.port", 0); p.put("logging.level.root", "WARN");
+        p.putAll(overrides);
         app = new SpringApplicationBuilder(ExecutionWorkerApplication.class).initializers(context -> {
             context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("testWorker", p));
-            context.getBeanFactory().registerSingleton("testRunner", fake);
+            if (runner != null) context.getBeanFactory().registerSingleton("testRunner", runner);
         }).run();
+    }
+    void startSandbox(SandboxProperties sandbox) {
+        start(30000, Map.of("pairforge.sandbox.enabled", true, "pairforge.sandbox.java-image", sandbox.javaImage(),
+                "pairforge.sandbox.python-image", sandbox.pythonImage(), "pairforge.sandbox.namespace", sandbox.namespace(),
+                "pairforge.sandbox.workspace-root", sandbox.workspaceRoot().toString(), "pairforge.worker.cleanup-timeout-ms", 10000), null);
+    }
+    @Test void realSandboxConsumesAndPersistsOutputWithoutDuplicateRerun() throws Exception {
+        var sandbox = SandboxTestSupport.properties(temporary, "worker-" + UUID.randomUUID().toString().substring(0,8), Map.of());
+        startSandbox(sandbox);
+        assertThat(probe("readiness")).isEqualTo(200);
+        UUID python = row("QUEUED"), java = row("QUEUED");
+        adminDb.update("update executions set source_code=? where id=?", "print('real Python')", python);
+        adminDb.update("update executions set language='JAVA',source_code=? where id=?", "public class Main { public static void main(String[] a) { System.out.println(\"real Java\"); } }", java);
+        send(python); send(python); send(java); send(java);
+        terminal(python,"SUCCEEDED"); terminal(java,"SUCCEEDED"); drained();
+        assertThat(revision(python)).isEqualTo(2); assertThat(revision(java)).isEqualTo(2);
+        assertThat(adminDb.queryForObject("select stdout from executions where id=?",String.class,python)).isEqualTo("real Python\n");
+        assertThat(adminDb.queryForObject("select stdout from executions where id=?",String.class,java)).isEqualTo("real Java\n");
+        assertSandboxEmpty(sandbox);
+    }
+    @Test void killedRealWorkerLeavesOrphanWhichRestartRemovesBeforeInterruptedCommit() throws Exception {
+        var sandbox = SandboxTestSupport.properties(temporary, "crash-" + UUID.randomUUID().toString().substring(0,8), Map.of());
+        UUID id = row("QUEUED");
+        adminDb.update("update executions set source_code=? where id=?", "import time\nopen('/work/started','w').write('ready')\ntime.sleep(10)",id);
+        Path log = temporary.resolve("sandbox-child.log");
+        var command = new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin","java").toString(), "-cp",
+                System.getProperty("surefire.test.class.path",System.getProperty("java.class.path")),ExecutionWorkerApplication.class.getName(),
+                "--spring.profiles.active=sandbox","--pairforge.sandbox.namespace="+sandbox.namespace(),"--server.port=0","--logging.level.root=WARN");
+        var env = command.environment();
+        env.put("PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED","true");
+        env.put("PAIRFORGE_SANDBOX_JAVA_IMAGE",sandbox.javaImage()); env.put("PAIRFORGE_SANDBOX_PYTHON_IMAGE",sandbox.pythonImage());
+        env.put("PAIRFORGE_SANDBOX_WORKSPACE_ROOT",sandbox.workspaceRoot().toString());
+        env.put("DATABASE_URL",PG.getJdbcUrl()); env.put("DATABASE_USER",WORKER); env.put("DATABASE_PASSWORD",PASSWORD);
+        env.put("RABBITMQ_HOST",RABBIT.getHost()); env.put("RABBITMQ_PORT",RABBIT.getAmqpPort().toString());
+        env.put("RABBITMQ_USER",RABBIT.getAdminUsername()); env.put("RABBITMQ_PASSWORD",RABBIT.getAdminPassword());
+        Process child = command.redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        List<ProcessHandle> clients = List.of();
+        try {
+            send(id);
+            await().atMost(Duration.ofSeconds(40)).pollInterval(Duration.ofMillis(100)).ignoreExceptions().untilAsserted(() -> {
+                assertThat(status(id)).isEqualTo("RUNNING");
+                assertThat(SandboxTestSupport.docker("exec","pf-"+sandbox.namespace()+"-"+id,"/bin/cat","/work/started")).isEqualTo("ready");
+            });
+            clients = child.descendants().toList();
+            child.destroyForcibly(); assertThat(child.waitFor(10,TimeUnit.SECONDS)).isTrue();
+            assertThat(SandboxTestSupport.docker("ps","-q","--filter","label=io.pairforge.execution="+id)).isNotBlank();
+            assertThat(status(id)).isEqualTo("RUNNING");
+        } finally {
+            if (child.isAlive()) { child.destroyForcibly(); child.waitFor(10,TimeUnit.SECONDS); }
+            clients.forEach(ProcessHandle::destroyForcibly);
+            // Restart only after the predecessor is confirmed dead, including failure cleanup of this test.
+            startSandbox(sandbox);
+        }
+        terminal(id,"FAILED"); drained(); assertSandboxEmpty(sandbox);
+        assertThat(adminDb.queryForObject("select failure_reason from executions where id=?",String.class,id)).isEqualTo("INFRASTRUCTURE_INTERRUPTION");
+        assertThat(repository().complete(id,1,SUCCESS)).isZero();
+        send(id);
+        UUID next = row("QUEUED"); adminDb.update("update executions set source_code=? where id=?","print('after crash')",next);
+        send(next); terminal(next,"SUCCEEDED"); assertThat(status(id)).isEqualTo("FAILED"); assertThat(revision(id)).isEqualTo(2);
+        assertSandboxEmpty(sandbox);
+    }
+    void assertSandboxEmpty(SandboxProperties sandbox) throws Exception {
+        assertThat(SandboxTestSupport.docker("ps","-aq","--filter","label=io.pairforge.sandbox="+sandbox.namespace())).isBlank();
+        try (var paths = Files.list(sandbox.workspaceRoot().resolve(sandbox.namespace()))) { assertThat(paths.toList()).isEmpty(); }
+    }
+    @Test void reconciliationFailureLatchesReadinessAndStopsAdmission() throws Exception {
+        start(); fake.failReconciliation = true;
+        await().atMost(Duration.ofSeconds(8)).untilAsserted(() -> assertThat(probe("readiness")).isEqualTo(503));
+        fake.failReconciliation = false;
+        UUID id = row("QUEUED"); send(id);
+        assertThat(probe("liveness")).isEqualTo(200);
+        assertThat(probe("readiness")).isEqualTo(503); assertThat(status(id)).isEqualTo("QUEUED");
+    }
+    @Test void gracefulWorkerShutdownWaitsForActiveContainerCleanup() throws Exception {
+        var sandbox=SandboxTestSupport.properties(temporary,"shutdown-"+UUID.randomUUID().toString().substring(0,8),Map.of());
+        startSandbox(sandbox); UUID id=row("QUEUED");
+        adminDb.update("update executions set source_code=? where id=?","import time\nopen('/work/started','w').write('ready')\ntime.sleep(10)",id);
+        send(id);
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(100)).ignoreExceptions().untilAsserted(() ->
+                assertThat(SandboxTestSupport.docker("exec","pf-"+sandbox.namespace()+"-"+id,"/bin/cat","/work/started")).isEqualTo("ready"));
+        var runner=app.getBean(DockerExecutionRunner.class);
+        var processor=org.springframework.test.util.ReflectionTestUtils.getField(app.getBean(ExecutionConsumer.class),"processor");
+        var executor=(ExecutorService)org.springframework.test.util.ReflectionTestUtils.getField(processor,"runs");
+        try {
+            app.close(); app=null;
+            assertThat(executor.isTerminated()).as("runner executor is stopped before context close returns").isTrue();
+            assertSandboxEmpty(sandbox);
+            assertThat(status(id)).isIn("RUNNING","FAILED"); // Shutdown never claims successful source completion.
+        } finally { runner.stop(id); } // Report assertion failures before cleaning their fixture.
     }
     ExecutionRepository repository() { return app.getBean(ExecutionRepository.class); }
     UUID row(String status) {

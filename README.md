@@ -2,21 +2,22 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 9 execution-worker processing** on the authentication and room
+contains **Milestone 10 Docker sandbox execution** on the authentication and room
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
 last-write-wins. Authorized execution submissions are persisted and queued with
-confirmed RabbitMQ publication. Worker claims, results, and recovery are tested
-with fake runners; runtime consumption, code execution, and the browser Run
-action are not enabled.
+confirmed RabbitMQ publication. An explicitly enabled worker compiles/runs Java
+or Python in constrained disposable containers and persists results. The browser
+Run action and real-time result events remain for Milestone 11.
 
 ## Structure
 
 | Path | Purpose |
 | --- | --- |
 | `backend/` | Modular-monolith API; authentication, rooms, collaboration, execution submission/history, health, persistence |
-| `execution-worker/` | Independent worker; health, disabled-by-default job consumer, atomic claims, result persistence, recovery |
+| `execution-worker/` | Independent worker; opt-in Docker execution, atomic claims, bounded results, cleanup/recovery, health |
+| `infra/sandbox/` | Trusted Java/Python image definitions with pinned base digests |
 | `frontend/` | React + TypeScript + Vite authentication, room workflows, and shared Monaco editing |
 | `compose.yaml` | PostgreSQL, Redis, and RabbitMQ for local development |
 | `scripts/` | Windows development/environment and smoke-check commands |
@@ -26,9 +27,9 @@ action are not enabled.
 The runnable Java modules do not depend on each other. The API owns Flyway
 migrations for users, rooms, membership, and execution records; Hibernate validates
 the schema and never creates it. Repositories are grouped by domain and use UUID
-references. The API produces execution jobs; the worker processing path is tested
-without executing source. Sandbox execution remains for Milestone 10. No Docker
-socket is mounted into an application.
+references. The API produces execution jobs; only the trusted worker orchestrates
+Docker through fixed CLI argument lists. Neither the API nor submitted containers
+receive a Docker socket. Compilation and submitted programs never run on the host.
 
 The browser loads the React application, logs in through the API, and holds its
 access token in memory. Protected requests send a bearer header; the API validates
@@ -108,6 +109,7 @@ Install frontend dependencies and build/test Java:
 Push-Location frontend
 npm.cmd ci
 Pop-Location
+.\scripts\prepare-sandbox.ps1
 .\mvnw.cmd --batch-mode --no-transfer-progress verify
 ```
 
@@ -125,9 +127,10 @@ save its invitation, and choose **Open room**. A second account can join from th
 dashboard using the room ID and invitation token. The room displays metadata and
 Monaco with a Java or Python starter. Switching the editor language preserves
 source and undo history; it does not change the room's saved default. Refreshing
-metadata preserves edits, but leaving the room, reloading, logout, and session
-expiry discard the draft. No source is saved or shared. Run stays disabled, with
-empty stdout/stderr panels and an explicit local-only connection status.
+metadata preserves edits. Connected rooms share accepted document state through
+Redis for up to 24 hours of inactivity; reconnection restores it while available,
+and loss/expiration causes an explicit reset. Unsent local edits can be lost on
+leaving/reloading. Run stays disabled with empty output panels until Milestone 11.
 
 Monaco and its browser worker are bundled locally, with no CDN or language server.
 Both syntax definitions load with the lazy editor module; language switching
@@ -271,8 +274,8 @@ All endpoints require a bearer token and room membership:
 POST body: `{"source":"print('hello')","language":"PYTHON"}`; Java uses `JAVA`.
 The contract is a single `main.py` or `Main.java`, standard libraries only,
 closed stdin, no package installation/network. Maximum source is 65,536 UTF-8
-bytes; maximum JSON body is 400,000 bytes. Syntax errors are left to the future
-sandbox. This milestone never runs submitted code.
+bytes; maximum JSON body is 400,000 bytes. Syntax errors are handled by the
+worker's sandbox; the API never runs submitted code.
 
 Defaults: 10 valid authorized attempts/user/60-second fixed window, 100 global
 outstanding executions, two publication attempts with a two-second confirm wait
@@ -299,9 +302,9 @@ one API instance without replacing the documented in-process admission lock.
 cleanup → conditional terminal result → manual acknowledgement. The snapshot
 comes from PostgreSQL; a duplicate never reruns started or terminal work.
 
-Consumption is disabled by default, and enabling it without a runner fails
-startup. M9 ships **no runtime runner**. The worker remains health-only when
-launched normally. Enabled test workers use one consumer/prefetched message and
+Consumption is disabled by default, and enabling it without a configured sandbox
+fails startup. The worker remains health-only when launched normally. Enabled
+workers use one consumer/prefetched message and
 three bounded infrastructure attempts. Exhaustion or broker/cleanup failure
 stops consumption and makes readiness unhealthy until operator recovery/restart.
 
@@ -310,7 +313,46 @@ for configuration, database grants, cleanup requirements, and single-worker
 operation. Verify the predecessor has stopped before recovery; the confirmation
 flag is not a distributed lock. An unsaved result may be lost during failure:
 recovery preserves terminal rows and fails interrupted work without rerunning it.
-Docker execution is M10; committed events and browser Run/output are M11.
+M10 adds Docker execution; committed events and browser Run/output remain M11.
+
+### Enable Docker execution (Milestone 10)
+
+Use a Linux Docker engine with cgroup v2 and seccomp. Run controlled local
+fixtures in Docker Desktop's Linux VM or an isolated disposable test host. Docker
+access is privileged trusted-orchestrator access; deployed execution needs a
+dedicated worker host/VM. Do not expose this setup to arbitrary hostile users.
+
+After the API has migrated the database and worker permissions are provisioned,
+stop any existing worker. In the worker terminal, at the repository root:
+
+```powershell
+.\scripts\prepare-sandbox.ps1
+$env:PAIRFORGE_SANDBOX_WORKSPACE_ROOT = Join-Path (Get-Location).Path '.tmp/execution-workspaces'
+# Set only after confirming the previous worker process is stopped.
+$env:PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED = 'true'
+.\scripts\dev.ps1 -Service worker -Sandbox
+```
+
+The image script builds pinned trusted bases, removes Python package tooling,
+and sets both immutable `PAIRFORGE_SANDBOX_*_IMAGE` values in this process. No
+image is downloaded per execution. Keep the same engine, workspace root, and
+namespace across restarts; do not run overlapping workers. Runtime defaults and
+failure recovery are documented in [Architecture §12](docs/ARCHITECTURE.md#12-docker-execution).
+
+Submit Java/Python through the existing authenticated REST endpoints and inspect
+the execution detail to retrieve the saved output/status. The browser Run button
+remains disabled. Required sandbox tests fail if Docker/images/controls are
+missing; no tests silently skip them. CI builds these same images before Maven.
+Docker logs are disabled, output is bounded, source is mounted read-only, and
+compilation/programs run solely inside disposable constrained containers.
+
+If readiness becomes DOWN, inspect the bounded worker reason code and restore
+the failing dependency. Never start a second worker to bypass the latch. On
+restart, startup reconciliation removes owned containers/source files before
+recovering RUNNING records. A killed worker can leave a constrained container
+until recovery; Docker alone provides no wall-clock expiration. Unknown files or
+ownership mismatches require operator inspection. Do not use global Docker prune
+or delete data volumes as a recovery shortcut.
 
 ## Room API
 
@@ -720,5 +762,5 @@ Read [the specification](docs/PROJECT_SPEC.md),
 [the architecture](docs/ARCHITECTURE.md), and
 [the roadmap](docs/ROADMAP.md) before extending the application. Complete each
 milestone's acceptance checks before proceeding; do not automatically start
-Milestone 10. The planned execution architecture retains the documented
+Milestone 11. The execution architecture retains the documented
 dual-write limitations, no initial outbox, and constrained Docker execution.

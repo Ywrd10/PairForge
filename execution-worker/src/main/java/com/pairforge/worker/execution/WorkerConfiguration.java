@@ -17,7 +17,7 @@ public class WorkerConfiguration {
         ExecutionProcessor processor = null;
         if (properties.enabled()) {
             ExecutionRunner runner = runners.getIfAvailable();
-            if (runner == null) throw new IllegalStateException("Consumption requires an ExecutionRunner; no runtime runner ships in Milestone 9");
+            if (runner == null) throw new IllegalStateException("Consumption requires an enabled, configured sandbox ExecutionRunner");
             if (!properties.previousWorkerStopped())
                 throw new IllegalStateException("Confirm the previous worker is stopped before enabling startup recovery");
             processor = new ExecutionProcessor(repository, runner, properties);

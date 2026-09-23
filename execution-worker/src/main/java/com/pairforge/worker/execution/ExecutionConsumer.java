@@ -24,6 +24,8 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
     private final ObjectReader reader;
     private final ExecutorService control = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("execution-control").factory());
     private final AtomicBoolean paused = new AtomicBoolean();
+    private final ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().daemon().name("execution-reconciliation").factory());
     private volatile boolean running;
     private volatile boolean ready;
     private volatile boolean closing;
@@ -99,12 +101,24 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
         running = true;
         try {
             processor.recover();
-            if (!paused.get()) { container.start(); ready = !paused.get(); }
+            if (!paused.get()) {
+                container.start(); ready = !paused.get();
+                maintenance.scheduleWithFixedDelay(() -> {
+                    try { processor.reconcile(); }
+                    catch (Exception error) { halt("RECONCILIATION_FAILED", error); }
+                }, processor.reconciliationMs(), processor.reconciliationMs(), TimeUnit.MILLISECONDS);
+            }
         } catch (RuntimeException error) { halt("STARTUP_RECOVERY_FAILED", error); }
     }
     @Override public synchronized void stop() {
+        if (closing) return;
         closing = true; ready = false;
-        container.stop(); running = false;
+        maintenance.shutdownNow();
+        try { container.stop(); }
+        finally {
+            try { if (processor != null) processor.close(); }
+            finally { control.shutdownNow(); running = false; }
+        }
     }
     @Override public boolean isRunning() { return running; }
     @Override public boolean isAutoStartup() { return properties.enabled(); }
@@ -112,8 +126,5 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
     @Override public Health health() {
         return !properties.enabled() || ready && !paused.get() && container.isRunning() ? Health.up().build() : Health.down().build();
     }
-    @Override public void close() {
-        stop(); control.shutdownNow();
-        if (processor != null) processor.close();
-    }
+    @Override public void close() { stop(); }
 }

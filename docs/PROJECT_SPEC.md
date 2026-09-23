@@ -178,9 +178,10 @@ per 60-second fixed window and 100 global outstanding QUEUED/RUNNING executions.
 Admission fails closed on dependency loss. A new HTTP POST is a new execution;
 clients inspect a returned ID or recent history before retrying an uncertain
 submission. Milestone 9 adds the worker's claim, result-persistence, and recovery
-path, verified with test-only fake runners. Runtime consumption remains disabled
-until the Milestone 10 sandbox exists; enabling it without a real runner fails
-startup. Run UI and execution events remain in Milestone 11.
+path, verified with test-only fake runners. Milestone 10 supplies the real Docker
+runner behind explicit sandbox/consumption opt-in and predecessor-stop attestation.
+The default worker remains health-only. Run UI and execution events remain in
+Milestone 11; authorized REST execution detail exposes the persisted result.
 
 The client should receive execution-state changes in real time.
 
@@ -226,7 +227,11 @@ Do not assume 128 MiB is sufficient for Java compilation and JVM overhead.
 
 Container startup, compilation, and runtime must all have bounded deadlines.
 
-Record final language-specific settings and measured behavior in Milestone 10.
+Milestone 10 defaults are Java 512 MiB/128 PIDs and Python 128 MiB/32 PIDs,
+one CPU, no swap, 32 MiB workspace, 8 MiB temporary directory, and 4 MiB shared
+memory. Preparation and Java compilation each have a 10-second budget; runtime
+has five seconds and the existing worker enforces 30 seconds overall. See
+Architecture §12 for configuration, measured fixtures, and recovery limitations.
 
 Bound Docker logs, drain both output streams concurrently, and clean resources
 on failure and worker restart. Docker is useful isolation for a portfolio demo,

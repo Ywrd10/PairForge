@@ -2,8 +2,11 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet('infrastructure', 'backend', 'worker', 'frontend', 'stop')]
     [string]$Service,
-    [switch]$Initialize
+    [switch]$Initialize,
+    [switch]$Sandbox
 )
+
+if ($Sandbox -and $Service -ne 'worker') { throw '-Sandbox applies only to the worker.' }
 
 . (Join-Path $PSScriptRoot 'environment.ps1')
 $originalJwtKey = $env:JWT_KEY_HEX
@@ -38,9 +41,10 @@ try {
             try {
                 # The worker must not inherit the API/bootstrap database password.
                 $env:POSTGRES_PASSWORD = $null
+                $workerProfiles = if ($Sandbox) { 'local,sandbox' } else { 'local' }
                 Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
                     '--no-transfer-progress', '-pl', 'execution-worker', 'spring-boot:run',
-                    '-Dspring-boot.run.profiles=local'
+                    "-Dspring-boot.run.profiles=$workerProfiles"
                 )
             } finally { $env:POSTGRES_PASSWORD = $bootstrapPassword }
         }

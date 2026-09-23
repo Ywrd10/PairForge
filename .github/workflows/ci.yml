@@ -25,6 +25,9 @@ jobs:
           cache: maven
       - name: Require Docker
         run: docker info
+      - name: Prepare pinned sandbox images
+        shell: pwsh
+        run: ./scripts/prepare-sandbox.ps1
       - name: Check credential initialization and isolation
         shell: pwsh
         run: |

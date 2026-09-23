@@ -38,7 +38,7 @@ class WorkerContractTest {
         var config = new WorkerConfiguration(); var beans = new DefaultListableBeanFactory();
         assertThatThrownBy(() -> config.workerExecution(connection, mapper, mock(ExecutionRepository.class),
                 beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, true, 30000, 2000, 100)))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("no runtime runner");
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("enabled, configured sandbox");
         beans.registerSingleton("testRunner", mock(ExecutionRunner.class));
         assertThatThrownBy(() -> config.workerExecution(connection, mapper, mock(ExecutionRepository.class),
                 beans.getBeanProvider(ExecutionRunner.class), new WorkerProperties(true, false, 30000, 2000, 100)))
