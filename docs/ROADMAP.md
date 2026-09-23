@@ -9,9 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 11 (DONE). Run, committed execution notifications,
-authorized real-time results, and explicit REST recovery pass local acceptance
-checks. The default worker remains health-only. Milestone 12 remains TODO and
+Current milestone: Milestone 12 (DONE). The reliability failure matrix, combined
+outages, bounded retries, recovery, and resource cleanup pass local acceptance
+checks. The default worker remains health-only. Milestone 13 remains TODO and
 requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
@@ -1371,7 +1371,7 @@ never rerun to recover an event. Continuous polling is not required.
 
 ## Milestone 12 — Reliability
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1384,6 +1384,70 @@ Deliverables:
 Acceptance test: the failure matrix in Architecture §16 passes, retry budgets
 survive relevant redeliveries, and operator recovery/known limitations are
 documented. This milestone does not defer correctness required by earlier work.
+
+### Implementation and verification (2026-09-22)
+
+| Acceptance area | Verified evidence |
+| --- | --- |
+| Admission/rate limits | Existing concurrent admission tests plus combined Redis/broker outage coverage; restoring dependencies cannot bypass PostgreSQL outstanding capacity. Redis counter loss remains an explicitly documented ephemeral-state limitation. |
+| Bounded retry/acknowledgement behavior | Read/claim/result retry limits, duplicate delivery, persistence uncertainty, and both database/broker recovery orders pass. Restoring connectivity does not clear the worker failure latch or reset its budget. Operator restart is a deliberate recovery attempt, not an unlimited automatic retry. |
+| Terminal protection and missed events | Started/terminal executions are not rerun; conditional writes preserve committed results. API database outage exhausts notification retries without losing saved output; REST and browser recovery succeed without another submission. |
+| Worker/sandbox recovery and bounds | Real process-kill, resource-limit, orphan, shutdown, and combined interruption/Docker-loss tests pass. Cleanup precedes interrupted-state persistence; command-boundary Docker fault injection does not stop the shared daemon. |
+| Operator guidance/failure matrix | Architecture §13 documents recovery ordering and retry boundaries; §16 maps every failure scenario to coverage. README links the checklist. Existing dual-write, single-worker, and sandbox trust-boundary limitations remain. |
+
+- The first targeted run exposed an intermittent shutdown error: a RabbitMQ
+  channel callback used a terminated executor after a failure-triggered consumer
+  stop was interrupted by application shutdown. Fixed `ExecutionConsumer` to
+  drain that stop with a ten-second bound before listener/processor teardown and
+  prevent late failure callbacks from scheduling work after shutdown starts.
+  A deterministic lifecycle regression and both subsequent worker integration
+  runs pass; the callback exception did not recur. No exception suppression or
+  test weakening was introduced.
+- Fresh root Maven `clean verify`: **330 Java tests** (233 backend, 97 worker),
+  zero failures/errors/skips. Frontend clean install, lint, typecheck, **65 unit
+  tests**, production build, and audit pass (zero reported vulnerabilities).
+  All **12 browser tests** pass with retries disabled, run after Java completion.
+- PowerShell 7 and 5.1 credential/launcher tests, Actionlint, Compose validation,
+  credential exclusion, and whitespace checks pass. Final inspection found zero
+  sandbox containers, browser dependency containers, or browser workspaces.
+  Existing Monaco bundle-size and JVM agent advisories remain non-blocking.
+- No required local check remains failing, skipped, or unverified. M11 commit
+  `04693f5` has a successful [GitHub Actions run](https://github.com/Ywrd10/PairForge/actions/runs/35811886123).
+  At this implementation checkpoint, M12 changes were uncommitted/unpushed and
+  remote CI was **unverified**. No schema, dependency, additional service, outbox, retry ledger,
+  automatic restart, or future-milestone functionality was added.
+  **Milestone 13 remains TODO.**
+
+### Review verification (2026-09-23)
+
+- Re-read the agent instructions, specification, architecture, and roadmap and
+  checked every acceptance area against its implementation and failure tests.
+  The reliability changes preserve authorization, resource controls, conditional
+  state transitions, manual recovery, and the approved dual-write limitations.
+  No further runtime defect, unnecessary abstraction, dead code, architectural
+  drift, or future-milestone implementation was identified in the M12 changes.
+- Strengthened `ExecutionConsumerTest`: a second consumer stop now asserts that
+  the first stop already finished. The earlier fixture blocked both stops on the
+  same latch and could miss an overlap; the regression now checks ordering as
+  well as waiting and rejects a concurrent teardown.
+- The first review build failed its Docker prerequisite (seven backend fixture
+  errors, worker reactor skipped). Docker Desktop reproduced its stale Windows
+  runtime-socket startup error. Preserved the two socket-only runtime directories
+  under dated backup names and restarted Desktop; Linux Engine 29.4.3 and the
+  pinned sandbox images were restored without resetting Docker data or settings.
+  No application change or test skip was used to work around that failure.
+- Fresh root `clean verify` then passed **330 Java tests**, zero failures/errors/
+  skips. Frontend clean install, lint, typecheck, **65 unit tests**, build, and
+  audit pass (zero reported vulnerabilities). All **12 browser tests** pass with
+  retries disabled and Java/browser container suites run sequentially. No new
+  flakiness or recurrence of the shutdown callback exception was observed.
+- PowerShell 7/5.1 credential and launcher tests, Actionlint, Compose validation,
+  secret exclusion, and whitespace checks pass. Cleanup inspection found zero
+  sandbox containers, browser dependency containers, or browser workspaces.
+  Existing bundle-size/JVM advisories are non-blocking. All required local
+  acceptance checks pass; the reviewed snapshot is ready for the authorized
+  commit/push and its GitHub Actions verification.
+- **Milestone 12 remains DONE. Milestone 13 remains TODO and is planning only.**
 
 ---
 

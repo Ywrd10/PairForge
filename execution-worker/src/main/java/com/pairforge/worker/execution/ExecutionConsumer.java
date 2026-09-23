@@ -31,10 +31,14 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
     private volatile boolean closing;
 
     public ExecutionConsumer(ConnectionFactory connection, ObjectMapper mapper, ExecutionProcessor processor, WorkerProperties properties) {
+        this(connection, mapper, processor, properties, new SimpleMessageListenerContainer(connection));
+    }
+    ExecutionConsumer(ConnectionFactory connection, ObjectMapper mapper, ExecutionProcessor processor,
+                      WorkerProperties properties, SimpleMessageListenerContainer container) {
         this.properties = properties; this.processor = processor;
         reader = mapper.readerFor(JsonNode.class).with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY,
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-        container = new SimpleMessageListenerContainer(connection);
+        this.container = container;
         container.setQueueNames(QUEUE);
         container.setAcknowledgeMode(AcknowledgeMode.MANUAL);
         container.setConcurrentConsumers(1); container.setMaxConcurrentConsumers(1); container.setPrefetchCount(1);
@@ -90,11 +94,13 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
         return id;
     }
     private void halt(String reason, Throwable error) {
-        if (closing || !properties.enabled() || !paused.compareAndSet(false, true)) return;
-        ready = false;
-        LoggerFactory.getLogger(getClass()).error("Worker consumption paused reason={} type={}; operator restart required",
-                reason, error == null ? "none" : error.getClass().getSimpleName());
-        control.execute(container::stop);
+        synchronized (control) {
+            if (closing || !properties.enabled() || !paused.compareAndSet(false, true)) return;
+            ready = false;
+            LoggerFactory.getLogger(getClass()).error("Worker consumption paused reason={} type={}; operator restart required",
+                    reason, error == null ? "none" : error.getClass().getSimpleName());
+            control.execute(container::stop);
+        }
     }
     @Override public synchronized void start() {
         if (!properties.enabled() || running || paused.get() || closing) return;
@@ -112,12 +118,26 @@ public class ExecutionConsumer implements SmartLifecycle, HealthIndicator, AutoC
     }
     @Override public synchronized void stop() {
         if (closing) return;
-        closing = true; ready = false;
+        synchronized (control) {
+            closing = true; ready = false;
+            control.shutdown();
+        }
         maintenance.shutdownNow();
-        try { container.stop(); }
+        try {
+            // A failure may already be closing channels on the control thread. Do not
+            // interrupt that close or let it outlive Spring's connection factory.
+            if (!control.awaitTermination(10, TimeUnit.SECONDS))
+                throw new IllegalStateException("Worker consumer shutdown did not finish within 10 seconds");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted waiting for worker consumer shutdown", error);
+        }
         finally {
-            try { if (processor != null) processor.close(); }
-            finally { control.shutdownNow(); running = false; }
+            try { container.stop(); }
+            finally {
+                try { if (processor != null) processor.close(); }
+                finally { control.shutdownNow(); running = false; }
+            }
         }
     }
     @Override public boolean isRunning() { return running; }

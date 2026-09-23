@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 import static com.pairforge.worker.sandbox.SandboxTestSupport.docker;
+import static org.mockito.Mockito.*;
 
 class DockerSandboxLifecycleIT {
     @TempDir Path temporary;
@@ -22,14 +23,17 @@ class DockerSandboxLifecycleIT {
     DockerExecutionRunner runner;
     final FaultClient client = new FaultClient();
     static class FaultClient extends DockerCommandClient {
-        volatile boolean denyControls, unavailable, ignorePhaseDeadline, expirePreparation, interruptExecution;
+        volatile boolean denyControls, unavailable, ignorePhaseDeadline, expirePreparation, interruptExecution, loseDockerOnInterrupt;
         final AtomicInteger sourceCommands = new AtomicInteger();
         FaultClient() { super("docker"); }
         @Override public Result execute(List<String> args, long timeout, BoundedOutputCollector capture) throws Exception {
             if (unavailable) throw new IOException("Injected Docker unavailability");
             boolean source = args.getFirst().equals("exec") && (args.contains("/source/Main.java") || args.contains("/source/main.py") || args.getLast().equals("Main"));
             if (source) sourceCommands.incrementAndGet();
-            if (source && interruptExecution) { Thread.currentThread().interrupt(); throw new InterruptedException("Injected shutdown"); }
+            if (source && interruptExecution) {
+                if (loseDockerOnInterrupt) unavailable = true;
+                Thread.currentThread().interrupt(); throw new InterruptedException("Injected shutdown");
+            }
             if (expirePreparation && args.getFirst().equals("create")) { Thread.sleep(2100); return new Result(-1,true); }
             if (denyControls && args.getFirst().equals("inspect")) {
                 var actual = new BoundedOutputCollector(262144);
@@ -120,6 +124,33 @@ class DockerSandboxLifecycleIT {
             assertThat(stopped.get(15,TimeUnit.SECONDS)).isTrue();
         }
         assertThat(docker("ps","-aq","--filter","label="+DockerExecutionRunner.OWNER+"="+p.namespace())).isBlank();
+    }
+    @Test void interruptionWithDockerLossCannotCompleteUntilRecoveryCleansRealResources() throws Exception {
+        initialize(Map.of());
+        var job = job("PYTHON", "print('not rerun')");
+        var repository = mock(ExecutionRepository.class);
+        when(repository.state(job.id())).thenReturn(Optional.of(new ExecutionRepository.State(job.id(), "QUEUED", 0)));
+        when(repository.claim(eq(job.id()), anyLong())).thenReturn(Optional.of(job));
+        when(repository.interrupted()).thenReturn(List.of(new ExecutionRepository.State(job.id(), "RUNNING", 1)));
+        var events = mock(ExecutionEventPublisher.class);
+        var processor = new ExecutionProcessor(repository, runner, new WorkerProperties(true, true, 30000, 10000, 0), events);
+        client.interruptExecution = true; client.loseDockerOnInterrupt = true;
+        try {
+            assertThatThrownBy(() -> processor.process(job.id())).isInstanceOf(IllegalStateException.class);
+            verify(repository, never()).complete(any(), anyLong(), any());
+            assertThat(docker("ps", "-aq", "--filter", "label=" + DockerExecutionRunner.OWNER + "=" + p.namespace())).isNotBlank();
+            assertThat(temporary.resolve(p.namespace()).resolve(job.id().toString()).resolve("main.py")).exists();
+            client.unavailable = false;
+            when(repository.complete(job.id(), 1, ExecutionResult.interrupted())).thenAnswer(call -> {
+                // Assert ordering at the persistence boundary, not just cleanup at test teardown.
+                assertThat(docker("ps", "-aq", "--filter", "label=" + DockerExecutionRunner.OWNER + "=" + p.namespace())).isBlank();
+                assertThat(temporary.resolve(p.namespace()).resolve(job.id().toString())).doesNotExist();
+                return 1;
+            });
+            processor.recover();
+            verify(repository).complete(job.id(), 1, ExecutionResult.interrupted());
+            assertThat(client.sourceCommands.get()).isEqualTo(1);
+        } finally { client.unavailable = false; processor.close(); }
     }
     @Test void noncanonicalWorkspaceIsNotDeletedOrSilentlyIgnored() throws Exception {
         initialize(Map.of());

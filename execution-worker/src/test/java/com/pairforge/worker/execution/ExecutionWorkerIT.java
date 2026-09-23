@@ -348,6 +348,50 @@ class ExecutionWorkerIT {
         assertThat(probe("liveness")).isEqualTo(200);
         app.close(); fake = new FakeRunner(); start(); terminal(id, "SUCCEEDED");
     }
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void combinedDatabaseAndBrokerLossCannotResetRetriesOrRerunStartedWork(boolean brokerFirst) throws Exception {
+        start(); UUID id = row("QUEUED"); fake.pauseDatabase = true;
+        boolean brokerStopped = false;
+        try {
+            send(id);
+            // Result persistence exhausts its budget while the real database is paused.
+            await().atMost(Duration.ofSeconds(15)).untilAsserted(() ->
+                    assertThat(app.getBean(ExecutionConsumer.class).health().getStatus().getCode()).isEqualTo("DOWN"));
+            assertThat(fake.calls.get()).isEqualTo(1);
+            brokerStopped = true;
+            assertThat(RABBIT.execInContainer("rabbitmqctl", "stop_app").getExitCode()).isZero();
+            if (brokerFirst) {
+                assertThat(RABBIT.execInContainer("rabbitmqctl", "start_app").getExitCode()).isZero();
+                brokerStopped = false;
+            }
+        } finally {
+            PG.getDockerClient().unpauseContainerCmd(PG.getContainerId()).exec();
+            if (brokerStopped) assertThat(RABBIT.execInContainer("rabbitmqctl", "start_app").getExitCode()).isZero();
+        }
+        String saved = status(id);
+        assertThat(saved).isIn("RUNNING", "SUCCEEDED"); // A timed-out write may still have committed.
+        UUID queued = row("QUEUED"); send(id); send(queued);
+        await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(8)).untilAsserted(() -> {
+            assertThat(probe("readiness")).isEqualTo(503);
+            assertThat(probe("liveness")).isEqualTo(200);
+            assertThat(admin.getQueueInfo(ExecutionConsumer.QUEUE).getConsumerCount()).isZero();
+            assertThat(admin.getQueueInfo(ExecutionConsumer.QUEUE).getMessageCount()).isGreaterThanOrEqualTo(3);
+            assertThat(fake.calls.get()).isEqualTo(1);
+            assertThat(status(queued)).isEqualTo("QUEUED");
+        });
+        app.close(); app = null; // The predecessor must be stopped before startup recovery.
+        fake = new FakeRunner(); start(); terminal(queued, "SUCCEEDED"); drained();
+        assertThat(status(id)).isEqualTo(saved.equals("SUCCEEDED") ? "SUCCEEDED" : "FAILED");
+        assertThat(revision(id)).isEqualTo(2);
+        assertThat(fake.calls.get()).isEqualTo(1);
+        assertThat(fake.snapshot.id()).isEqualTo(queued);
+        assertThat(repository().complete(id, 1, SUCCESS)).isZero();
+        if (saved.equals("SUCCEEDED"))
+            assertThat(adminDb.queryForObject("select stdout from executions where id=?", String.class, id)).isEqualTo("hello");
+        else
+            assertThat(adminDb.queryForObject("select failure_reason from executions where id=?", String.class, id)).isEqualTo("INFRASTRUCTURE_INTERRUPTION");
+        assertThat(probe("readiness")).isEqualTo(200);
+    }
     @Test void restrictedWorkerRoleCannotMutateSnapshotsOrReadAccounts() {
         start(); var jdbc = app.getBean(JdbcTemplate.class); UUID id = row("QUEUED");
         for (String sql : List.of("select * from users", "select * from room_members", "delete from executions", "insert into executions select * from executions",

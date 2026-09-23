@@ -391,6 +391,24 @@ acceptance now requires both API/worker JARs and prepared sandbox images. CI bui
 both, provisions a restricted worker database role, and runs controlled real
 Java/Python programs in isolated fixtures.
 
+## Reliability recovery (Milestone 12)
+
+For a dependency or worker failure, inspect readiness and the execution ID's
+durable state before retrying anything. Restore dependencies, stop and verify the
+old worker, then start one replacement with the same Docker namespace/workspace.
+The worker failure latch is deliberate: restored connectivity alone does not
+resume consumption. Startup must verify cleanup before recovering interrupted
+work. Do not reset executions to QUEUED, automatically restart workers, or blindly
+repeat submissions. Recover the browser with Refresh Status or reconnect.
+
+The [operator checklist and retry audit](docs/ARCHITECTURE.md#milestone-12-recovery-checklist-and-retry-audit)
+describe the order, conditional QUEUED recovery, admission behavior, and limitations.
+The [failure acceptance matrix](docs/ARCHITECTURE.md#milestone-12-failure-acceptance-matrix)
+maps each requirement to tests. Combined-outage tests use isolated PostgreSQL,
+Redis, and RabbitMQ containers; sandbox fault injection never stops the shared
+Docker daemon. Run Java and browser container suites sequentially on the local
+Windows machine to avoid the previously observed Chromium resource error.
+
 ## Room API
 
 All requests require `Authorization: Bearer <token>`.

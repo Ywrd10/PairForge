@@ -42,6 +42,19 @@ class ExecutionProcessorTest {
         assertThatThrownBy(() -> processor.process(id)).isInstanceOf(DataAccessResourceFailureException.class);
         verify(repository, times(3)).complete(id, 1, success); verify(runner, times(1)).run(any());
     }
+    @Test void readsAndClaimsExhaustTheirBudgetWithoutStartingSource() throws Exception {
+        when(repository.state(id)).thenThrow(outage());
+        assertThatThrownBy(() -> processor.process(id)).isInstanceOf(DataAccessResourceFailureException.class);
+        verify(repository, times(3)).state(id);
+        verify(repository, never()).claim(any(), anyLong());
+        reset(repository);
+        when(repository.state(id)).thenReturn(Optional.of(new ExecutionRepository.State(id, "QUEUED", 0)));
+        when(repository.claim(eq(id), anyLong())).thenThrow(outage());
+        assertThatThrownBy(() -> processor.process(id)).isInstanceOf(DataAccessResourceFailureException.class);
+        verify(repository, times(3)).claim(eq(id), anyLong());
+        verify(runner, never()).run(any());
+        verify(repository, never()).complete(any(), anyLong(), any());
+    }
     @Test void uncertainClaimCannotStartTheRunnerOnARunningRow() throws Exception {
         when(repository.claim(eq(id), anyLong())).thenThrow(outage()).thenReturn(Optional.empty());
         assertThatThrownBy(() -> processor.process(id)).isInstanceOf(IllegalStateException.class);

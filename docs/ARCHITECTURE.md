@@ -1308,6 +1308,64 @@ failures must be logged and reconciled; do not silently report successful cleanu
 A dead-letter queue may be added later if useful, but is not required for the
 initial MVP.
 
+### Milestone 12 recovery checklist and retry audit
+
+1. Record execution IDs, durable status/revision, dependency health, worker
+   readiness, and the safe failure reason. Do not dump submitted source/output or
+   credentials into diagnostics. Stop new test submissions while investigating.
+2. Restore PostgreSQL, Redis, RabbitMQ, and Docker access as applicable. An API
+   event listener reconnects automatically; an enabled worker with an exhausted
+   retry/cleanup/broker failure remains latched DOWN. Liveness UP is not permission
+   to submit more work or evidence that cleanup succeeded.
+3. Stop the old worker and independently confirm its process exited. Restore
+   Docker before cleanup/recovery; preserve the same engine, namespace, and
+   workspace root. Inspect unexpected files/labels rather than deleting broadly.
+   Start the API first for schema/topology ownership and provision the restricted
+   worker role if needed. Never overlap replacement workers.
+4. Start one replacement with the documented predecessor-stop attestation.
+   Startup must clean owned resources before conditionally failing interrupted
+   RUNNING rows. A cleanup/persistence failure keeps consumption off; do not clear
+   the latch through automatic restarts. An unsaved result may be lost, but source
+   that started is never automatically rerun. Preserve any terminal commit whose
+   response was lost; a timeout does not prove a transaction rolled back.
+5. Verify readiness, preserved terminal rows, the queue's consumer count, and
+   owned-resource cleanup. Investigate aged QUEUED IDs using §9's conditional
+   operator procedure; age alone does not establish abandonment. Never reset
+   started/terminal rows to QUEUED, blindly republish, or repeat a POST to recover.
+6. Use authorized REST detail/history, Refresh Status, or browser reconnect to
+   recover missed notifications. Only a deliberate user action creates a new
+   execution after the previous outcome is understood.
+
+Worker shutdown also drains any failure-triggered consumer stop before continuing
+with listener/processor teardown (at most ten seconds, with an explicit failure
+if that wait is interrupted or exhausted). Failure callbacks cannot enqueue a
+new stop after shutdown begins. This prevents an in-progress channel close from
+being interrupted and racing destruction of Spring's RabbitMQ connection factory.
+
+Retry boundaries remain unchanged:
+
+| Operation | Budget and exhaustion behavior |
+| --- | --- |
+| API job publication | Default 2 attempts, maximum 3, same execution ID; conditional dispatch-failure persistence or explicit unknown outcome (§9). |
+| Worker state read, claim, result persistence | At most 3 attempts per operation; final-result retries retain the bounded result, never rerun source. Exhaustion closes the job channel, returns unacknowledged delivery, and latches consumption off. |
+| Event publication | Default 2 attempts, maximum 3; saved state remains authoritative when notification fails (§14). |
+| API event consumption | At most 3 local attempts; reject exhausted notifications without requeue and recover through REST. Browser receipt is not an acknowledgement condition. |
+| Sandbox controls/cleanup | Existing phase, overall, and cleanup deadlines apply; inability to verify cleanup cannot become a successful terminal write. Periodic reconciliation may clean resources after Docker returns but cannot resume a latched consumer. |
+
+No persistent retry ledger is required under the current stop-on-failure policy:
+dependency recovery and broker redelivery cannot automatically start a fresh
+worker retry budget. An operator restart is a new, explicit recovery attempt;
+terminal rows are skipped and interrupted rows are cleaned/failed. This is not
+a lifetime bound across unlimited operator restarts. Automatic restarts, multiple
+workers, or automatic redispatch would require a new ownership/retry design.
+
+Admission remains fail-closed during dependency outages. QUEUED/RUNNING rows
+continue to count against the PostgreSQL global limit while the worker is paused.
+Redis quota counters are ephemeral: an outage with retained data preserves the
+window, but Redis data loss can reset it. The durable outstanding limit still
+applies. The commit-to-job/event-publish gaps, single API/worker constraints, and
+Docker's lack of an independent wall-clock container TTL remain MVP limitations.
+
 ---
 
 ## 14. Real-Time Execution Events
@@ -1491,6 +1549,34 @@ Run adversarial sandbox cases in an isolated execution test environment. Unit
 tests use a fake runner only in tests; no fake or host-process execution fallback
 ships as runtime behavior. Missing Docker fails required integration checks.
 Basic CI starts with foundation checks in Milestone 0 and grows with each feature.
+
+### Milestone 12 failure acceptance matrix
+
+Existing feature tests remain required; the reliability milestone adds combined
+cases rather than duplicating their fixtures. Worker fakes never interpret source.
+Docker faults injected at the command boundary use real disposable resources;
+they do not claim to stop the developer's shared Docker daemon.
+
+| Failure/scenario | Required state and recovery | Coverage |
+| --- | --- | --- |
+| Invalid/expired identity, invitation, room access, or WebSocket destination | No unauthorized read/write/subscription; expiry closes or suppresses delivery. | `AuthIT`, `RoomIT`, `CollaborationIT` |
+| Malformed/oversized frames, connection floods, slow subscribers | Reject invalid input and enforce connection, executor, send-buffer and timeout bounds. | `CollaborationIT`, `CollaborationLimitsTest` (blocked-send fixture for slow clients) |
+| Concurrent edits, stale generations, TTL loss, Redis outage | Versions do not regress; explicit document reset and manual recovery; no offline replay. | `CollaborationIT`, collaboration client tests, `rooms.spec.ts` |
+| Concurrent admission and full backlog | Atomic per-user window and bounded durable outstanding count; rejected requests create no job. | `ExecutionIT.perUserAdmissionIsAtomicUnderConcurrentAttempts`, `concurrentGlobalAdmissionNeverExceedsDurableOutstandingLimit` |
+| Redis plus broker outage with a full backlog | Dependency restoration does not bypass PostgreSQL capacity; only a conditional terminal transition frees a slot. | `ExecutionIT.dependencyRecoveryCannotBypassDurableOutstandingCapacity` |
+| Nack, return, lost confirm, persistence uncertainty | Same-ID retries; conditional failure cannot overwrite a claim; preserve ID/unknown outcome for REST. | `ExecutionJobPublisherTest`, `ExecutionIT` dispatch/outage cases |
+| Crash after commit before job publication | Assert stranded QUEUED limitation and conditional operator recovery, not guaranteed redispatch. | `ExecutionIT.interruptionAfterCommitLeavesDocumentedQueuedGapAndManualConditionalFailureIsSafe` (injected interruption, not OS kill) |
+| Duplicate job, uncertain claim/commit, late final write | One claim; no rerun of started/terminal work; revision-conditional results; persistence before ack. | `ExecutionProcessorTest`, `ExecutionWorkerIT` duplicate, concurrent claim, and lost-persistence cases |
+| Exhausted reads/claims/result writes and broker recovery | Finite attempts, readiness DOWN/liveness independent, no automatic resume or new attempt budget. | `ExecutionProcessorTest` budget cases; `ExecutionWorkerIT.databaseLossBeforeClaimPausesWithoutRunningAndDoesNotAutoResume` |
+| Database plus broker loss after execution, either restore order | Valid job remains available; latch survives reconnect; replacement preserves terminal commit or cleans/fails interruption, never reruns that source. | `ExecutionWorkerIT.combinedDatabaseAndBrokerLossCannotResetRetriesOrRerunStartedWork` |
+| Worker process kill before/after terminal commit; orphaned real sandbox | Redelivery preserves terminal state; confirmed-dead predecessor resources are removed before interruption recovery. | `ExecutionWorkerIT.killedWorkerProcessRedeliversWithoutRerunningStartedOrCompletedJob`, `killedRealWorkerLeavesOrphanWhichRestartRemovesBeforeInterruptedCommit` |
+| Interruption plus unavailable Docker cleanup | No terminal persistence before verified cleanup; real resources remain visible until recovery and are not mistaken for success. | `DockerSandboxLifecycleIT.interruptionWithDockerLossCannotCompleteUntilRecoveryCleansRealResources` |
+| Ownership mismatch, orphan, blocked exec, shutdown | Only owned canonical resources are removed; deadlines/reconciliation and shutdown cleanup remain bounded. | `DockerSandboxLifecycleIT`, `ExecutionWorkerIT.gracefulWorkerShutdownWaitsForActiveContainerCleanup` |
+| Context shutdown while a failure-triggered consumer stop is active | Drain the existing stop before processor teardown; late connection failures cannot schedule work on a closed executor. | `ExecutionConsumerTest.shutdownWaitsForFailureStopBeforeClosingProcessorOrReturning`, `ExecutionWorkerIT` outage/restart cases |
+| Java/Python errors and sandbox resource/control failures | Compilation/runtime only inside constrained containers; enforce time, memory, CPU, PIDs, output, storage and network controls; fail closed. | `DockerSandboxIT`, `DockerSandboxLifecycleIT`, `SandboxPolicyTest` |
+| Event publish/consume failure and duplicate/stale events | Saved result survives; bounded retry/discard, no execution rerun or state regression. | Both `ExecutionEventPublisherTest` suites, `ExecutionEventConsumerTest`, `ExecutionWorkerIT.notificationFailureDoesNotLoseResultOrRepeatSource` |
+| Database unavailable to API event listener | Exhausted event is discarded, persisted output survives, authorized REST recovers without another submission. | `ExecutionIT.databaseLossDiscardsNotificationAfterBoundedAttemptsButRestRecoversResult` |
+| API/browser reconnect, lost HTTP response or notification | Recover authoritative history/detail; stable selection; no automatic POST retry or continuous polling. | `ExecutionIT.reconnectingApiConsumerHandlesBacklogWithoutRegressingCommittedState`, execution client tests, `executions.spec.ts` |
 
 ---
 

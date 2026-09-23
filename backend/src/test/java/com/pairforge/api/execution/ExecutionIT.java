@@ -61,6 +61,7 @@ class ExecutionIT {
     @Autowired RabbitAdmin admin;
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redis;
+    @Autowired io.micrometer.core.instrument.MeterRegistry metrics;
     @MockitoSpyBean ExecutionJobPublisher publisher;
     @MockitoSpyBean ExecutionEventPublisher eventPublisher;
     @MockitoSpyBean org.springframework.messaging.simp.SimpMessagingTemplate sockets;
@@ -101,6 +102,54 @@ class ExecutionIT {
         UUID id=UUID.fromString(receipt.get("executionId").asText());
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> verify(sockets).convertAndSend(
                 "/topic/rooms/"+room+"/executions",new ExecutionEvent(1,id,room,"QUEUED",0)));
+    }
+    @Test void databaseLossDiscardsNotificationAfterBoundedAttemptsButRestRecoversResult() throws Exception {
+        var owner = actor(); var room = room(owner);
+        var receipt = body(request("POST", path(room), source("print(1)"), owner.token()), 202);
+        UUID id = UUID.fromString(receipt.get("executionId").asText());
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> verify(sockets).convertAndSend(
+                "/topic/rooms/" + room + "/executions", new ExecutionEvent(1, id, room, "QUEUED", 0)));
+        jdbc.update("update executions set status='SUCCEEDED',state_revision=2,stdout='durable result',completed_at=now() where id=?", id);
+        var failures = metrics.counter("pairforge.execution.events.consume.failures", "reason", "unavailable");
+        double before = failures.count();
+        PG.getDockerClient().pauseContainerCmd(PG.getContainerId()).exec();
+        try {
+            assertThat(eventPublisher.publish(new ExecutionEvent(1, id, room, "SUCCEEDED", 2))).isTrue();
+            await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> assertThat(failures.count()).isEqualTo(before + 1));
+        } finally { PG.getDockerClient().unpauseContainerCmd(PG.getContainerId()).exec(); }
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(body(request("GET", "/api/executions/" + id, null, owner.token()), 200).get("stdout").asText()).isEqualTo("durable result"));
+        verify(sockets, never()).convertAndSend("/topic/rooms/" + room + "/executions", new ExecutionEvent(1, id, room, "SUCCEEDED", 2));
+        verify(publisher, times(1)).publish(id);
+        assertThat(executions.count()).isEqualTo(1);
+        assertThat(admin.getQueueInfo(ExecutionMessaging.EVENTS).getMessageCount()).isZero();
+    }
+    @Test void dependencyRecoveryCannotBypassDurableOutstandingCapacity() throws Exception {
+        UUID first = null;
+        for (int i = 0; i < 3; i++) {
+            var owner = actor();
+            var receipt = body(request("POST", path(room(owner)), source("pass"), owner.token()), 202);
+            if (first == null) first = UUID.fromString(receipt.get("executionId").asText());
+        }
+        var next = actor(); var room = room(next);
+        boolean redisPaused = false;
+        try {
+            assertThat(RABBIT.execInContainer("rabbitmqctl", "stop_app").getExitCode()).isZero();
+            REDIS.getDockerClient().pauseContainerCmd(REDIS.getContainerId()).exec(); redisPaused = true;
+            assertThat(body(request("POST", path(room), source("pass"), next.token()), 503).get("code").asText()).isEqualTo("DEPENDENCY_UNAVAILABLE");
+            REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec(); redisPaused = false;
+            assertThat(body(request("POST", path(room), source("pass"), next.token()), 503).get("code").asText()).isEqualTo("EXECUTION_CAPACITY");
+            assertThat(executions.count()).isEqualTo(3);
+            verify(publisher, times(3)).publish(any());
+        } finally {
+            if (redisPaused) REDIS.getDockerClient().unpauseContainerCmd(REDIS.getContainerId()).exec();
+            assertThat(RABBIT.execInContainer("rabbitmqctl", "start_app").getExitCode()).isZero();
+        }
+        // The documented operator procedure frees capacity only through a conditional terminal write.
+        assertThat(jdbc.update("update executions set status='FAILED',failure_reason='DISPATCH_FAILED',completed_at=now(),state_revision=state_revision+1 where id=? and status='QUEUED'", first)).isEqualTo(1);
+        body(request("POST", path(room), source("pass"), next.token()), 202);
+        assertThat(executions.countByStatusIn(List.of(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING))).isEqualTo(3);
+        assertThat(executions.count()).isEqualTo(4);
     }
     @Test void eventRouteFailureDoesNotFailDispatchOrLoseSavedResults() throws Exception {
         var binding=new Binding(ExecutionMessaging.EVENTS,Binding.DestinationType.QUEUE,ExecutionMessaging.EXCHANGE,ExecutionMessaging.EVENTS,Map.of());
