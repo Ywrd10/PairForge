@@ -9,9 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 14 (IN PROGRESS). CI hardening is being validated;
-Milestone 13 is committed and its remote CI passed. Milestone 15 remains TODO
-and requires a separate implementation request.
+Current milestone: Milestone 14 (DONE). CI hardening passes local checks,
+intentional failure-propagation acceptance and final remote verification.
+Milestone 15 remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1548,7 +1548,7 @@ contain no credentials, invitation tokens, or submitted source/output by default
 
 ## Milestone 14 — CI Hardening
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
 Deliverables:
 
@@ -1564,6 +1564,60 @@ Extend the basic GitHub Actions workflow introduced in Milestone 0. It runs:
 Acceptance test:
 
 A failing test produces a failing workflow.
+
+### Implementation and verification (2026-09-24)
+
+- Preserved the two Ubuntu hosted jobs and existing Java/frontend/container
+  coverage. Actions use verified full SHAs; CI pins Temurin 21.0.12+1 and Node
+  24.19.0, retaining the Maven checksum, npm lockfile and sandbox image digests.
+  Read-only permissions, disabled checkout credential persistence, concurrency
+  cancellation and 20-minute job limits bound the workflow. No deployment or
+  repository protection settings were changed.
+- Added explicit tool/Docker/Linux/cgroup v2/seccomp prerequisite checks and
+  source-discovered report gates. Missing, malformed, empty, inconsistent,
+  failed or skipped suite reports fail validation. Existing worker preflight
+  still checks effective sandbox limits. Required tests never silently skip.
+- Java and frontend jobs publish only sanitized source/status/count summaries
+  after success or failure, retained for seven days. Raw XML, exception payloads,
+  test-case names, environment files and browser captures are excluded. Frontend
+  unit results are collected before Playwright clears its output directory.
+- All **59 CI gate checks** pass in PowerShell 7 and Windows PowerShell 5.1,
+  including prerequisite faults, missing suites, malformed/DTD XML, failure/
+  skip/count inconsistencies and sentinel-secret exclusion. A real prerequisite
+  CLI run against an unavailable local Docker endpoint also failed explicitly;
+  the real daemon and its configuration were unchanged. Existing credential
+  and launcher tests, PowerShell syntax, Actionlint, Compose configuration,
+  workflow permission/pin review, whitespace and ignored-file checks pass.
+- Fresh local Maven `clean verify`: **351 tests**, zero failures/errors/skips.
+  Frontend clean install, lint, typecheck, **65 unit tests**, production build and
+  audit pass (zero reported vulnerabilities). The first full local browser run
+  had one guest-reconnect failure. Review found injected disconnects closed only
+  the browser side of Playwright's proxy; the shared fault fixture now closes
+  both sides. Five independent reconnect repetitions and the corrected full
+  **12-test browser suite** pass with retries disabled. Production connection
+  limits and application behavior were not changed or weakened.
+- Docker Desktop required the previously verified reversible stale runtime-
+  socket directory backup/restart. No data/settings reset was used. Final local
+  inspection found no sandbox/browser dependency containers or browser workspaces.
+- The deliberate Java and frontend failure probes each failed their job and
+  [workflow 35959029066](https://github.com/Ywrd10/PairForge/actions/runs/35959029066).
+  Downloaded sanitized artifacts correctly identify both failing suites; other
+  suites skipped after these intentional failures are not passing evidence.
+  The temporary probe branch/worktree was removed and neither probe is in the
+  implementation candidate.
+- The initial clean candidate passed
+  [workflow 35958984096](https://github.com/Ywrd10/PairForge/actions/runs/35958984096)
+  with 351 Java, 65 frontend unit and 12 browser tests. The final candidate
+  `06f3c67`, including the browser fixture correction, passed
+  [workflow 35959977550](https://github.com/Ywrd10/PairForge/actions/runs/35959977550).
+  Downloaded final artifacts confirm **351 Java, 65 frontend unit and 12 browser
+  tests**, with zero failures/errors/skips. No unresolved required check remains.
+- Implementation commits `5adce48` and `06f3c67` were published to
+  `codex/milestone-14-ci` for real acceptance before publication to `master`.
+  This completion record preserves the verified milestone evidence.
+  No intentional failure probe is retained.
+
+Milestone 15 remains TODO; no deployment work was introduced.
 
 ---
 
