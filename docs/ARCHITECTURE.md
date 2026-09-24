@@ -1605,6 +1605,32 @@ tests use a fake runner only in tests; no fake or host-process execution fallbac
 ships as runtime behavior. Missing Docker fails required integration checks.
 Basic CI starts with foundation checks in Milestone 0 and grows with each feature.
 
+### Milestone 14 CI contract
+
+Two independent GitHub-hosted Ubuntu jobs verify Java (API and worker) and the
+frontend including real-browser acceptance. Required Docker/Linux/cgroup v2/
+seccomp prerequisites fail explicitly; existing sandbox preflight verifies
+effective controls. Compilation and submitted code still run only inside
+disposable submission containers. CI has no production credentials, uses
+read-only repository permissions, and runs controlled fixtures on disposable
+hosts. It does not provide a public execution environment or deployment.
+
+Actions use verified immutable SHAs, toolchains use explicit patch versions,
+and existing Maven checksums, npm lockfiles and trusted sandbox digests remain
+authoritative. Hosted OS packages are not immutable; tool/capability versions are
+recorded. No retries, continue-on-error, or optional Docker integration suites
+hide failures. Browser JAR packaging skips Java tests only in the frontend job;
+the independent Java job must run the complete suite.
+
+Source-discovered suite reports must exist and contain nonzero, consistent test
+counts without errors, failures or skips. Fault-injection helper tests cover
+missing/incompatible tools, unavailable Docker/security controls and bad reports.
+Only sanitized source-path/status/count summaries are uploaded (7-day retention),
+even after a failing test. XML entities/DTDs are rejected. Raw reports and browser
+captures remain excluded to protect credentials and source/output. Acceptance
+requires real failed-test workflow evidence followed by a passing clean candidate;
+local validation alone is insufficient. See README for commands and pinned versions.
+
 ### Milestone 12 failure acceptance matrix
 
 Existing feature tests remain required; the reliability milestone adds combined

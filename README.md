@@ -517,13 +517,57 @@ fail startup rather than launching against an unknown schema. Fix the underlying
 problem and restart. Never edit an applied migration or use Flyway clean/repair
 as an automatic workaround; introduce a new version for subsequent schema changes.
 
-GitHub Actions runs the equivalent Maven and npm checks on Linux, using Docker
-for Testcontainers. Reports appear under each Java module's
-`target/failsafe-reports/` (integration) and `target/surefire-reports/` (unit) and
-are uploaded when available. Linux users can run
-the wrapper with `bash ./mvnw`; the PowerShell helpers are for Windows.
-Remote CI can only be verified after the repository is connected and pushed to
-GitHub. A locally passing build alone does not establish a passing remote run.
+### CI hardening (Milestone 14)
+
+GitHub Actions runs two independent jobs on disposable `ubuntu-24.04` hosted
+runners: **Backend and worker** runs Maven `clean verify` and the PowerShell
+helper tests; **Frontend** runs `npm ci`, lint, typecheck, unit tests, production
+build, and Chromium acceptance against real API/worker processes and isolated
+Docker dependencies. Browser packaging uses `-DskipTests` only because the Java
+job independently runs every Java test. Both jobs must pass. No test retry or
+failure suppression is enabled. Push and pull-request events run the same checks.
+
+CI pins Temurin **21.0.12+1**, Node **24.19.0** (bundled npm), and Actions to
+verified full commit SHAs with release comments. Maven **3.9.16** has a wrapper
+checksum; Spring Boot **3.5.16**, npm dependencies/lockfile, Playwright **1.63.0**
+and sandbox base-image digests remain pinned in their existing files. Update
+pins deliberately and rerun acceptance. Hosted runner packages/kernel/Docker can
+change: setup logs and the prerequisite check record actual tool versions,
+kernel and Docker capabilities; this is not a byte-for-byte pinned VM.
+
+`scripts/check-ci-prerequisites.ps1 [-Frontend]` requires Java 21 and a working
+Linux Docker engine with cgroup v2/seccomp; frontend checks additionally require
+Node 24/npm. The existing worker preflight and sandbox tests verify effective
+container limits. Missing prerequisites fail; sandbox suites never skip or fall
+back to executing source on the host. Run only repository-controlled adversarial
+fixtures on these disposable runners. CI uses read-only repository permissions,
+does not retain checkout credentials, and needs no application/deployment secrets.
+
+JUnit XML stays local in each module's `target/surefire-reports` and
+`target/failsafe-reports`, plus `frontend/test-results/unit.xml` and `browser.xml`.
+`scripts/check-ci-reports.ps1 -Kind Java|Unit|Browser` discovers required suites
+from source files and rejects missing/malformed/empty reports, inconsistent
+counts, failures, errors, or skipped tests. Run the Unit check before Playwright,
+which clears `test-results`. Source conventions are Java `*Test.java`/`*IT.java`,
+frontend `src/**/*.test.ts[x]`, and browser `e2e/**/*.spec.ts`.
+
+Always-run steps produce sanitized `.tmp/ci-reports/*.json` summaries and upload
+only those exact files for **7 days**, including after failures. Summaries contain
+source paths, fixed statuses, and numeric counts. Raw XML, test case names,
+properties, stack traces, system output, environment files and browser captures
+are excluded because they may contain credentials or submissions. Failed suite
+paths identify which check to reproduce; step logs retain the test runner's
+diagnostics. Aborted/setup failures can prevent artifact creation, but cannot
+turn the workflow green. Required missing artifacts are errors.
+
+Run `pwsh -File scripts/test-ci-checks.ps1` to verify the prerequisite/report
+gates with controlled fault fixtures (no daemon shutdown). On Linux use
+`bash ./mvnw --batch-mode --no-transfer-progress clean verify`; CI helpers use
+PowerShell 7 on both platforms. A passing local build does not establish a passing
+remote run. Milestone acceptance also deliberately fails Java/frontend tests on
+a temporary `codex/` branch, verifies failed jobs/workflow and diagnostic uploads,
+then removes the probes and verifies the clean candidate. Repository branch
+protection and deployment are separate from this workflow.
 
 ## Collaboration (Milestones 6–7)
 

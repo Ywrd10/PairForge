@@ -9,9 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 13 (DONE). Restricted Prometheus metrics, structured
-logging, and observability acceptance checks pass. Milestone 14
-remains TODO and requires a separate implementation request.
+Current milestone: Milestone 14 (IN PROGRESS). CI hardening is being validated;
+Milestone 13 is committed and its remote CI passed. Milestone 15 remains TODO
+and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1548,7 +1548,7 @@ contain no credentials, invitation tokens, or submitted source/output by default
 
 ## Milestone 14 — CI Hardening
 
-**Status: TODO**
+**Status: IN PROGRESS**
 
 Deliverables:
 

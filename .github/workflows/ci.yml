@@ -1,4 +1,4 @@
-name: Foundation checks
+name: CI checks
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: foundation-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -17,14 +17,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '21.0.12+1'
           cache: maven
-      - name: Require Docker
-        run: docker info
+      - name: Require supported tools and Docker controls
+        shell: pwsh
+        run: ./scripts/check-ci-prerequisites.ps1
       - name: Prepare pinned sandbox images
         shell: pwsh
         run: ./scripts/prepare-sandbox.ps1
@@ -33,19 +36,22 @@ jobs:
         run: |
           ./scripts/test-provision-worker.ps1
           ./scripts/test-auth-environment.ps1
+          ./scripts/test-ci-checks.ps1
       - name: Build and run real-container tests
-        run: bash ./mvnw --batch-mode --no-transfer-progress verify
-      - name: Upload test reports
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
+      - name: Validate required Java suites and produce sanitized diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        shell: pwsh
+        run: ./scripts/check-ci-reports.ps1 -Kind Java
+      - name: Upload sanitized Java results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: java-test-reports
-          path: |
-            backend/target/surefire-reports/
-            backend/target/failsafe-reports/
-            execution-worker/target/surefire-reports/
-            execution-worker/target/failsafe-reports/
-          if-no-files-found: warn
+          path: .tmp/ci-reports/java.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   frontend:
     name: Frontend
@@ -55,22 +61,34 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '24'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.19.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21.0.12+1'
+          cache: maven
+      - name: Require supported tools and Docker controls
+        working-directory: .
+        shell: pwsh
+        run: ./scripts/check-ci-prerequisites.ps1 -Frontend
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # Collect unit results before Playwright clears its output directory.
+      - name: Validate frontend unit suites
+        if: always()
+        working-directory: .
+        shell: pwsh
+        run: ./scripts/check-ci-reports.ps1 -Kind Unit
       - run: npm run build
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
       - name: Package API and worker for browser acceptance (Java tests run in the java job)
         working-directory: .
         run: bash ./mvnw --batch-mode --no-transfer-progress -DskipTests package
@@ -81,3 +99,19 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Browser acceptance with isolated real dependencies
         run: npm run test:e2e
+      - name: Validate browser suites
+        if: always()
+        working-directory: .
+        shell: pwsh
+        run: ./scripts/check-ci-reports.ps1 -Kind Browser
+      - name: Upload sanitized frontend results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-test-reports
+          path: |
+            .tmp/ci-reports/unit.json
+            .tmp/ci-reports/browser.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

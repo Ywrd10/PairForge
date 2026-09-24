@@ -7,7 +7,7 @@ export default defineConfig({
   retries: 0,
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  reporter: 'list',
+  reporter: [['list'], ['junit', { outputFile: 'test-results/browser.xml', stripANSIControlSequences: true }]],
   // Traces/screenshots can capture credentials and one-time invitations.
   use: { baseURL: 'http://127.0.0.1:15173', browserName: 'chromium', trace: 'off', screenshot: 'off', video: 'off' },
   webServer: {
