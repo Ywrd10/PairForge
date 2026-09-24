@@ -1630,6 +1630,9 @@ even after a failing test. XML entities/DTDs are rejected. Raw reports and brows
 captures remain excluded to protect credentials and source/output. Acceptance
 requires real failed-test workflow evidence followed by a passing clean candidate;
 local validation alone is insufficient. See README for commands and pinned versions.
+Browser fault fixtures close both the browser and upstream sides of Playwright's
+WebSocket proxy when injecting a disconnect; closing only one side can leave
+upstream sessions behind and interfere with later reconnect checks.
 
 ### Milestone 12 failure acceptance matrix
 

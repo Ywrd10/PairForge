@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { test, expect } from '@playwright/test'
-import type { Page, WebSocketRoute } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { connectSocket } from './socket'
 
 async function login(page: Page) {
   const email = `execution-${randomBytes(8).toString('hex')}@example.test`, password = randomBytes(20).toString('hex')
@@ -65,10 +66,10 @@ test('real Python success, runtime failure, Java compilation failure and timeout
 
 test('missed notifications recover through Refresh Status and reconnect without another POST', async ({ page }) => {
   test.setTimeout(90000)
-  let connection: WebSocketRoute | undefined, terminalDropped = 0, posts = 0
+  let connection: ReturnType<typeof connectSocket> | undefined, terminalDropped = 0, posts = 0
   await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => {
-    connection = socket
-    const server = socket.connectToServer()
+    connection = connectSocket(socket)
+    const server = connection.server
     server.onMessage(message => {
       if (message.toString().includes('/executions')) {
         if (message.toString().includes('"status":"SUCCEEDED"')) terminalDropped++
@@ -91,7 +92,7 @@ test('missed notifications recover through Refresh Status and reconnect without 
   await expect.poll(() => terminalDropped, { timeout: 20000 }).toBeGreaterThan(previousTerminalCount)
   // This second result is still stale locally: reconnect itself must fetch it.
   await expect(status(page)).toHaveText('RUNNING')
-  await connection!.close({ code: 1011, reason: 'Test reconnect' })
+  await connection!.disconnect()
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeEnabled()

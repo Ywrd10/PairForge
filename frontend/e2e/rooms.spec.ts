@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { test, expect } from '@playwright/test'
-import type { Page, WebSocketRoute } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { connectSocket } from './socket'
 
 async function registerAndLogin(page: Page) {
   const email = `browser-${randomBytes(8).toString('hex')}@example.test`
@@ -25,8 +26,8 @@ function redisFixture(args: string[]) {
 }
 
 test('Redis outage is visible and recovery after data loss explicitly resets the document', async ({ page }) => {
-  let connection: WebSocketRoute | undefined
-  await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { connection = socket; socket.connectToServer() })
+  let connection: ReturnType<typeof connectSocket> | undefined
+  await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { connection = connectSocket(socket) })
   await registerAndLogin(page)
   await page.getByLabel('Room name', { exact: true }).fill('Redis recovery')
   await page.getByRole('button', { name: 'Create room', exact: true }).click()
@@ -38,7 +39,7 @@ test('Redis outage is visible and recovery after data loss explicitly resets the
   await expect(status).toContainText('Connected')
   await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('saved before outage')
   await expect(status).toContainText('synchronized in Redis')
-  await connection!.close({ code: 1011, reason: 'Test Redis outage recovery' })
+  await connection!.disconnect()
   await expect(status).toContainText('Disconnected')
   await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('offline backup')
   redisFixture(['pause'])
@@ -52,7 +53,7 @@ test('Redis outage is visible and recovery after data loss explicitly resets the
   await expect(status).toContainText('synchronized in Redis')
   await expect(lines).toContainText('saved before outage')
   await expect(page.getByLabel('Local draft backup', { exact: true })).toHaveValue('offline backup')
-  await connection!.close({ code: 1011, reason: 'Test data loss' })
+  await connection!.disconnect()
   await expect(status).toContainText('Disconnected')
   expect(redisFixture(['exec', 'redis-cli', 'DEL', `room:{${id}}:document`])).toBe('1')
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click()
@@ -62,10 +63,10 @@ test('Redis outage is visible and recovery after data loss explicitly resets the
 })
 
 test('a lost collaboration connection keeps a visible local draft without replay', async ({ page }) => {
-  let connection: WebSocketRoute | undefined
+  let connection: ReturnType<typeof connectSocket> | undefined
   let connections = 0
   await page.routeWebSocket('ws://127.0.0.1:18080/ws', socket => {
-    connections++; connection = socket; socket.connectToServer()
+    connections++; connection = connectSocket(socket)
   })
   await registerAndLogin(page)
   await page.getByLabel('Room name', { exact: true }).fill('Disconnected editing')
@@ -75,7 +76,7 @@ test('a lost collaboration connection keeps a visible local draft without replay
   await expect(status).toContainText('Connected')
   const source = page.getByRole('textbox', { name: 'Source code', exact: true })
   await expect(source).toBeVisible()
-  await connection!.close({ code: 1011, reason: 'Test connection loss' })
+  await connection!.disconnect()
   await expect(status).toContainText('Disconnected')
   await source.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('local copy after disconnect')
   await expect(page.locator('.monaco-editor .view-lines')).toContainText('local copy after disconnect')
@@ -341,8 +342,8 @@ test('two authorized accounts exchange edits and language changes without execut
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:15173' })
   try {
     const guest = await context.newPage()
-    let guestSocket: WebSocketRoute | undefined
-    await guest.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { guestSocket = socket; socket.connectToServer() })
+    let guestSocket: ReturnType<typeof connectSocket> | undefined
+    await guest.routeWebSocket('ws://127.0.0.1:18080/ws', socket => { guestSocket = connectSocket(socket) })
     guest.on('pageerror', error => errors.push(error.message))
     await registerAndLogin(guest)
     await guest.getByLabel('Room ID to join').fill(id)
@@ -362,7 +363,7 @@ test('two authorized accounts exchange edits and language changes without execut
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('print("from guest")')
     await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeEnabled()
     const guestStatus = guest.getByRole('region', { name: 'Connection status', exact: true })
-    await guestSocket!.close({ code: 1011, reason: 'Test reconnect' })
+    await guestSocket!.disconnect()
     await expect(guestStatus).toContainText('Disconnected')
     await guestSource.focus(); await guest.keyboard.press('Control+a'); await guest.keyboard.insertText('private offline draft')
     await ownerSource.focus(); await page.keyboard.press('Control+a'); await page.keyboard.insertText('latest while guest away')
