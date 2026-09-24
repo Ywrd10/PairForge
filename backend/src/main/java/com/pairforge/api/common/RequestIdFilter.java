@@ -17,7 +17,10 @@ public class RequestIdFilter extends OncePerRequestFilter {
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                              FilterChain chain) throws ServletException, IOException {
         // Run before security so rejected requests also carry a server-generated ID.
-        response.setHeader("X-Request-ID", UUID.randomUUID().toString());
-        chain.doFilter(request, response);
+        String id = UUID.randomUUID().toString();
+        response.setHeader("X-Request-ID", id);
+        try (var ignored = org.slf4j.MDC.putCloseable("requestId", id)) {
+            chain.doFilter(request, response);
+        }
     }
 }

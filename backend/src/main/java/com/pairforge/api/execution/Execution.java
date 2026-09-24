@@ -8,7 +8,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.EnumType;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -49,6 +48,7 @@ public class Execution {
     private Long durationMs;
 
     @Column(name = "created_at", nullable = false, updatable = false)
+    @org.hibernate.annotations.CreationTimestamp(source = org.hibernate.annotations.SourceType.DB)
     private Instant createdAt;
 
     @Column(name = "started_at")
@@ -81,7 +81,6 @@ public class Execution {
         this.status = ExecutionStatus.QUEUED;
         this.stdout = "";
         this.stderr = "";
-        this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     public UUID getId() { return id; }

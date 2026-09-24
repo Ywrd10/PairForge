@@ -3,10 +3,12 @@ param(
     [ValidateSet('infrastructure', 'backend', 'worker', 'frontend', 'stop')]
     [string]$Service,
     [switch]$Initialize,
-    [switch]$Sandbox
+    [switch]$Sandbox,
+    [switch]$Observability
 )
 
 if ($Sandbox -and $Service -ne 'worker') { throw '-Sandbox applies only to the worker.' }
+if ($Observability -and $Service -notin @('backend', 'worker')) { throw '-Observability applies only to backend or worker.' }
 
 . (Join-Path $PSScriptRoot 'environment.ps1')
 $originalJwtKey = $env:JWT_KEY_HEX
@@ -30,7 +32,7 @@ try {
             }
             Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
                 '--no-transfer-progress', '-pl', 'backend', 'spring-boot:run',
-                '-Dspring-boot.run.profiles=local'
+                "-Dspring-boot.run.profiles=$(if ($Observability) { 'local,observability' } else { 'local' })"
             )
         }
         'worker' {
@@ -42,6 +44,7 @@ try {
                 # The worker must not inherit the API/bootstrap database password.
                 $env:POSTGRES_PASSWORD = $null
                 $workerProfiles = if ($Sandbox) { 'local,sandbox' } else { 'local' }
+                if ($Observability) { $workerProfiles += ',observability' }
                 Invoke-PairForgeCommand (Join-Path $script:PairForgeRoot 'mvnw.cmd') @(
                     '--no-transfer-progress', '-pl', 'execution-worker', 'spring-boot:run',
                     "-Dspring-boot.run.profiles=$workerProfiles"

@@ -19,7 +19,7 @@ class CollaborationLimitsTest {
         return socket;
     }
     @Test void ipAndGlobalConnectionCapsReleaseOnDisconnect() {
-        var sessions = new CollaborationSessions(limits(), Clock.systemUTC());
+        var sessions = new CollaborationSessions(limits(), Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var first = socket("127.0.0.1");
         assertThat(sessions.open(first)).isTrue(); assertThat(sessions.open(socket("127.0.0.1"))).isFalse();
         assertThat(sessions.open(socket("127.0.0.2"))).isTrue(); assertThat(sessions.open(socket("127.0.0.3"))).isFalse();
@@ -27,11 +27,18 @@ class CollaborationLimitsTest {
     }
     @Test void deadlinesAndAuthenticatedExpiryCloseIdleConnections() throws Exception {
         var clock = mock(Clock.class); var now = Instant.parse("2026-09-16T00:00:00Z"); when(clock.instant()).thenReturn(now);
-        var sessions = new CollaborationSessions(limits(), clock); var first = socket("127.0.0.1"); sessions.open(first);
+        var metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var sessions = new CollaborationSessions(limits(), clock, metrics); var first = socket("127.0.0.1"); sessions.open(first);
+        assertThat(metrics.get("pairforge.websocket.connections").gauge().value()).isEqualTo(1);
+        assertThat(metrics.get("pairforge.websocket.authenticated").gauge().value()).isZero();
         when(clock.instant()).thenReturn(now.plusSeconds(6)); sessions.expire(); verify(first).close(CloseStatus.POLICY_VIOLATION);
         var second = socket("127.0.0.2"); sessions.open(second);
         sessions.authenticate(sessions.require(second.getId()), UUID.randomUUID(), now.plusSeconds(7));
+        assertThat(metrics.get("pairforge.websocket.authenticated").gauge().value()).isEqualTo(1);
         when(clock.instant()).thenReturn(now.plusSeconds(7)); sessions.expire(); verify(second).close(CloseStatus.POLICY_VIOLATION);
+        sessions.remove(second.getId()); sessions.close(second.getId());
+        assertThat(metrics.get("pairforge.websocket.connections").gauge().value()).isZero();
+        assertThat(metrics.get("pairforge.websocket.authenticated").gauge().value()).isZero();
     }
     @Test void springSendBufferTerminatesASlowClientInsteadOfGrowingWithoutLimit() throws Exception {
         var blocked = socket("127.0.0.1"); when(blocked.isOpen()).thenReturn(true);

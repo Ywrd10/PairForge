@@ -18,6 +18,7 @@ public class DockerExecutionRunner implements ExecutionRunner {
     private final SandboxProperties p;
     private final DockerCommandClient docker;
     private final ObjectMapper mapper;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
     private final Path root;
     private final Map<String, String> images = new HashMap<>();
     private final ConcurrentMap<UUID, Activity> active = new ConcurrentHashMap<>();
@@ -30,8 +31,8 @@ public class DockerExecutionRunner implements ExecutionRunner {
         final AtomicBoolean cancelled = new AtomicBoolean(), expired = new AtomicBoolean();
         Activity(UUID id, long remaining) { this.id = id; expires = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0, remaining)); }
     }
-    public DockerExecutionRunner(SandboxProperties properties, DockerCommandClient docker, ObjectMapper mapper) {
-        this.p = properties; this.docker = docker; this.mapper = mapper;
+    public DockerExecutionRunner(SandboxProperties properties, DockerCommandClient docker, ObjectMapper mapper, io.micrometer.core.instrument.MeterRegistry metrics) {
+        this.p = properties; this.docker = docker; this.mapper = mapper; this.metrics = metrics;
         root = p.workspaceRoot().toAbsolutePath().normalize().resolve(p.namespace());
     }
     @Override public void initialize() throws Exception {
@@ -76,15 +77,17 @@ public class DockerExecutionRunner implements ExecutionRunner {
         long started = System.nanoTime();
         var capture = new BoundedOutputCollector(p.outputBytes());
         try {
-            prepare(activity, job.language(), job.source(), job.deadline());
+            long preparing = System.nanoTime();
+            try { prepare(activity, job.language(), job.source(), job.deadline()); }
+            finally { recordPhase(job.language(), "preparation", preparing); }
             if (job.language().equals("JAVA")) {
-                var compiled = phase(activity, p.compilationMs(), capture, "/opt/java/openjdk/bin/javac", "-J-Xmx256m", "-proc:none", "-encoding", "UTF-8", "-d", "/work", "/source/Main.java");
+                var compiled = measuredPhase(job.language(), "compilation", activity, p.compilationMs(), capture, "/opt/java/openjdk/bin/javac", "-J-Xmx256m", "-proc:none", "-encoding", "UTF-8", "-d", "/work", "/source/Main.java");
                 ExecutionResult result = outcome(activity, compiled, capture, true, started);
                 if (result != null) return result;
             }
             DockerCommandClient.Result executed = job.language().equals("JAVA")
-                    ? phase(activity, p.runtimeMs(), capture, "/opt/java/openjdk/bin/java", "-XX:+UseSerialGC", "-Xmx" + p.javaMemoryMib() + "m", "-XX:+ExitOnOutOfMemoryError", "-cp", "/work", "Main")
-                    : phase(activity, p.runtimeMs(), capture, "/usr/local/bin/python3", "-I", "-S", "-B", "/source/main.py");
+                    ? measuredPhase(job.language(), "runtime", activity, p.runtimeMs(), capture, "/opt/java/openjdk/bin/java", "-XX:+UseSerialGC", "-Xmx" + p.javaMemoryMib() + "m", "-XX:+ExitOnOutOfMemoryError", "-cp", "/work", "Main")
+                    : measuredPhase(job.language(), "runtime", activity, p.runtimeMs(), capture, "/usr/local/bin/python3", "-I", "-S", "-B", "/source/main.py");
             ExecutionResult result = outcome(activity, executed, capture, false, started);
             return result == null ? result(ExecutionResult.Status.SUCCEEDED, null, capture, executed.exitCode(), started) : result;
         } catch (Exception error) {
@@ -122,6 +125,15 @@ public class DockerExecutionRunner implements ExecutionRunner {
     private ExecutionResult result(ExecutionResult.Status status, ExecutionResult.FailureReason reason, BoundedOutputCollector output, Integer exit, long started) {
         return new ExecutionResult(status, output.stdout(), output.stderr(), exit,
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started), reason, output.overflow());
+    }
+    private DockerCommandClient.Result measuredPhase(String language, String phase, Activity a, long limit, BoundedOutputCollector capture, String... command) throws Exception {
+        long started = System.nanoTime();
+        try { return phase(a, limit, capture, command); }
+        finally { recordPhase(language, phase, started); }
+    }
+    private void recordPhase(String language, String phase, long started) {
+        metrics.timer("pairforge.execution.phase", "language", language, "phase", phase)
+                .record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
     }
     private DockerCommandClient.Result phase(Activity a, long limit, BoundedOutputCollector capture, String... command) throws Exception {
         check(a);
@@ -214,6 +226,15 @@ public class DockerExecutionRunner implements ExecutionRunner {
             throw new IllegalStateException("CPU quota unavailable");
     }
     @Override public void stop(UUID id) throws Exception {
+        try { cleanup(id); }
+        catch (Exception error) {
+            metrics.counter("pairforge.execution.cleanup.failures", "operation", "sandbox_stop").increment();
+            org.slf4j.LoggerFactory.getLogger(getClass()).atWarn().addKeyValue("executionId", id)
+                    .addKeyValue("type", error.getClass().getSimpleName()).log("Sandbox cleanup failed");
+            throw error;
+        }
+    }
+    private void cleanup(UUID id) throws Exception {
         Activity a = active.get(id);
         if (a != null) a.cancelled.set(true);
         synchronized (cleanupLock) { synchronized (a == null ? this : a) {

@@ -31,7 +31,34 @@ import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
 @Testcontainers
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class ExecutionWorkerIT {
+    @Test void realSandboxMetricsSeparateQueueRuntimeAndOutcomesWithoutCountingDuplicates(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        var sandbox = SandboxTestSupport.properties(temporary, "metrics-" + UUID.randomUUID().toString().substring(0,8), Map.of());
+        startSandbox(sandbox);
+        var meters = app.getBean(io.micrometer.core.instrument.MeterRegistry.class);
+        var expected = Map.of("SUCCEEDED", "print('private-output-sentinel')", "FAILED", "raise RuntimeError('private-error-sentinel')", "TIMED_OUT", "while True: pass");
+        for (var entry : expected.entrySet()) {
+            UUID id = row("QUEUED");
+            adminDb.update("update executions set source_code=?,created_at=clock_timestamp()-interval '2 seconds' where id=?", entry.getValue(), id);
+            send(id); terminal(id, entry.getKey()); drained(); send(id); drained();
+            assertThat(meters.get("pairforge.execution.completed").tag("status", entry.getKey()).counter().count()).isEqualTo(1);
+            assertThat(meters.get("pairforge.execution.duration").tag("status", entry.getKey()).timer().count()).isEqualTo(1);
+        }
+        var queue = meters.get("pairforge.execution.queue.wait").tag("language", "PYTHON").timer();
+        assertThat(queue.count()).isEqualTo(3);
+        assertThat(queue.totalTime(TimeUnit.SECONDS)).isGreaterThanOrEqualTo(6);
+        assertThat(meters.get("pairforge.execution.phase").tag("phase", "runtime").timer().count()).isEqualTo(3);
+        assertThat(meters.get("pairforge.execution.phase").tag("phase", "preparation").timer().count()).isEqualTo(3);
+        String scrape = app.getBean(io.micrometer.prometheusmetrics.PrometheusMeterRegistry.class).scrape();
+        assertThat(scrape).contains("pairforge_execution_completed_total", "pairforge_execution_queue_wait_seconds", "pairforge_execution_duration_seconds");
+        assertThat(scrape).doesNotContain("executionId", "roomId", "source_code");
+        assertThat(output.getAll()).doesNotContain("private-output-sentinel", "private-error-sentinel", PASSWORD);
+        String log = output.getAll().lines().filter(line -> line.contains("Execution committed")).findFirst().orElseThrow();
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().readTree(log).path("executionId").asText()).isNotBlank();
+        assertSandboxEmpty(sandbox);
+    }
     static final String WORKER = "pairforge_worker_test";
     static final String PASSWORD = UUID.randomUUID().toString();
     @Container static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:17.11-bookworm")
@@ -107,7 +134,8 @@ class ExecutionWorkerIT {
     void startSandbox(SandboxProperties sandbox) {
         start(30000, Map.of("pairforge.sandbox.enabled", true, "pairforge.sandbox.java-image", sandbox.javaImage(),
                 "pairforge.sandbox.python-image", sandbox.pythonImage(), "pairforge.sandbox.namespace", sandbox.namespace(),
-                "pairforge.sandbox.workspace-root", sandbox.workspaceRoot().toString(), "pairforge.worker.cleanup-timeout-ms", 10000), null);
+                "pairforge.sandbox.workspace-root", sandbox.workspaceRoot().toString(), "pairforge.worker.cleanup-timeout-ms", 10000,
+                "logging.level.com.pairforge.worker", "INFO"), null);
     }
     @Test void committedRunningAndTerminalEventsArePersistentAndDuplicatesNeverRerun() throws Exception {
         fake.block=true; start(); UUID id=row("QUEUED"); send(id);

@@ -33,7 +33,12 @@ public class CollaborationSessions {
     private final Map<String, State> sessions = new ConcurrentHashMap<>();
     private final CollaborationProperties properties;
     private final Clock clock;
-    public CollaborationSessions(CollaborationProperties properties, Clock clock) { this.properties = properties; this.clock = clock; }
+    public CollaborationSessions(CollaborationProperties properties, Clock clock, io.micrometer.core.instrument.MeterRegistry metrics) {
+        this.properties = properties; this.clock = clock;
+        metrics.gauge("pairforge.websocket.connections", sessions, Map::size);
+        metrics.gauge("pairforge.websocket.authenticated", sessions,
+                values -> values.values().stream().filter(s -> s.user != null).count());
+    }
     public synchronized boolean open(WebSocketSession socket) {
         var state = new State(socket, clock.instant().plusMillis(properties.connectTimeoutMs()));
         if (sessions.size() >= properties.maxConnections()

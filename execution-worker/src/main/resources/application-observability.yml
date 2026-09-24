@@ -1,0 +1,8 @@
+management:
+  server:
+    address: 127.0.0.1
+    port: ${WORKER_MANAGEMENT_PORT:8083}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus

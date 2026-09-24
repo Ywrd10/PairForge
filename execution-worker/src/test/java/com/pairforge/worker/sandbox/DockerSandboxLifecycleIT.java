@@ -21,6 +21,7 @@ class DockerSandboxLifecycleIT {
     @TempDir Path temporary;
     SandboxProperties p;
     DockerExecutionRunner runner;
+    final io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
     final FaultClient client = new FaultClient();
     static class FaultClient extends DockerCommandClient {
         volatile boolean denyControls, unavailable, ignorePhaseDeadline, expirePreparation, interruptExecution, loseDockerOnInterrupt;
@@ -48,7 +49,7 @@ class DockerSandboxLifecycleIT {
     }
     void initialize(Map<String,Object> overrides) throws Exception {
         p = SandboxTestSupport.properties(temporary,"life-"+UUID.randomUUID().toString().substring(0,8),overrides);
-        runner = new DockerExecutionRunner(p,client,new ObjectMapper()); runner.initialize();
+        runner = new DockerExecutionRunner(p,client,new ObjectMapper(), metrics); runner.initialize();
     }
     @AfterEach void cleanup() throws Exception {
         client.unavailable = false; client.denyControls = false;
@@ -58,7 +59,7 @@ class DockerSandboxLifecycleIT {
             try (var paths=Files.list(temporary.resolve(p.namespace()))) { assertThat(paths.toList()).isEmpty(); }
         }
     }
-    ExecutionRepository.Job job(String language,String source) { return new ExecutionRepository.Job(UUID.randomUUID(),language,source,Instant.now().plusSeconds(30),1); }
+    ExecutionRepository.Job job(String language,String source) { return new ExecutionRepository.Job(UUID.randomUUID(),language,source,Instant.now().plusSeconds(30), 1, Instant.now().minusSeconds(2), Instant.now()); }
     @Test void missingControlFailsClosedBeforeSourceCommand() throws Exception {
         initialize(Map.of()); client.denyControls = true;
         assertThatThrownBy(() -> runner.run(job("JAVA","public class Main {}"))).hasMessageContaining("controls were not applied");
@@ -79,7 +80,7 @@ class DockerSandboxLifecycleIT {
         initialize(Map.of());
         assertThatThrownBy(() -> runner.run(job("PYTHON","a".repeat(65537)))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> runner.run(job("RUBY","print(1)"))).isInstanceOf(IllegalArgumentException.class);
-        assertThat(runner.run(new ExecutionRepository.Job(UUID.randomUUID(),"PYTHON","print(1)",Instant.now().minusSeconds(1),1)).status())
+        assertThat(runner.run(new ExecutionRepository.Job(UUID.randomUUID(),"PYTHON","print(1)",Instant.now().minusSeconds(1), 1, Instant.now().minusSeconds(2), Instant.now())).status())
                 .isEqualTo(ExecutionResult.Status.TIMED_OUT);
         assertThat(client.sourceCommands.get()).isZero();
     }
@@ -87,7 +88,7 @@ class DockerSandboxLifecycleIT {
         initialize(Map.of()); client.ignorePhaseDeadline = true;
         UUID id=UUID.randomUUID();
         try (var threads=Executors.newSingleThreadExecutor()) {
-            var result=threads.submit(() -> runner.run(new ExecutionRepository.Job(id,"PYTHON","while True: pass",Instant.now().plusSeconds(3),1)));
+            var result=threads.submit(() -> runner.run(new ExecutionRepository.Job(id,"PYTHON","while True: pass",Instant.now().plusSeconds(3), 1, Instant.now().minusSeconds(2), Instant.now())));
             await().atMost(Duration.ofSeconds(5)).until(() -> client.sourceCommands.get() == 1);
             await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).until(() -> { runner.reconcile(); return result.isDone(); });
             assertThat(result.get(5,TimeUnit.SECONDS).status()).isEqualTo(ExecutionResult.Status.TIMED_OUT);
@@ -133,10 +134,11 @@ class DockerSandboxLifecycleIT {
         when(repository.claim(eq(job.id()), anyLong())).thenReturn(Optional.of(job));
         when(repository.interrupted()).thenReturn(List.of(new ExecutionRepository.State(job.id(), "RUNNING", 1)));
         var events = mock(ExecutionEventPublisher.class);
-        var processor = new ExecutionProcessor(repository, runner, new WorkerProperties(true, true, 30000, 10000, 0), events);
+        var processor = new ExecutionProcessor(repository, runner, new WorkerProperties(true, true, 30000, 10000, 0), events, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         client.interruptExecution = true; client.loseDockerOnInterrupt = true;
         try {
             assertThatThrownBy(() -> processor.process(job.id())).isInstanceOf(IllegalStateException.class);
+            assertThat(metrics.get("pairforge.execution.cleanup.failures").tag("operation", "sandbox_stop").counter().count()).isGreaterThanOrEqualTo(1);
             verify(repository, never()).complete(any(), anyLong(), any());
             assertThat(docker("ps", "-aq", "--filter", "label=" + DockerExecutionRunner.OWNER + "=" + p.namespace())).isNotBlank();
             assertThat(temporary.resolve(p.namespace()).resolve(job.id().toString()).resolve("main.py")).exists();

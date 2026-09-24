@@ -9,7 +9,8 @@ public class ExecutionRepository {
     public record State(UUID id, String status, long revision) {
         public boolean terminal() { return Set.of("SUCCEEDED", "FAILED", "TIMED_OUT").contains(status); }
     }
-    public record Job(UUID id, String language, String source, Instant deadline, long revision) {}
+    public record Job(UUID id, String language, String source, Instant deadline, long revision,
+                      Instant createdAt, Instant startedAt) {}
     private final JdbcTemplate jdbc;
     public ExecutionRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     public ExecutionEvent event(UUID id) {
@@ -26,9 +27,10 @@ public class ExecutionRepository {
                     started_at=greatest(clock_timestamp(),created_at),
                     deadline_at=greatest(clock_timestamp(),created_at) + (? * interval '1 millisecond')
                 where id=? and status='QUEUED'
-                returning id,language,source_code,deadline_at,state_revision
+                returning id,language,source_code,deadline_at,state_revision,created_at,started_at
                 """, (r, n) -> new Job(r.getObject(1, UUID.class), r.getString(2), r.getString(3),
-                r.getTimestamp(4).toInstant(), r.getLong(5)), deadlineMs, id).stream().findFirst();
+                r.getTimestamp(4).toInstant(), r.getLong(5), r.getTimestamp(6).toInstant(),
+                r.getTimestamp(7).toInstant()), deadlineMs, id).stream().findFirst();
     }
     public int complete(UUID id, long revision, ExecutionResult result) {
         return jdbc.update("""

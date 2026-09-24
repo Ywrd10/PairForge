@@ -10,9 +10,9 @@ import org.springframework.context.annotation.*;
 @ConditionalOnProperty(name = "pairforge.sandbox.enabled", havingValue = "true")
 @EnableConfigurationProperties(SandboxProperties.class)
 public class SandboxConfiguration {
-    @Bean DockerExecutionRunner dockerExecutionRunner(SandboxProperties properties, WorkerProperties worker, ObjectMapper mapper) {
+    @Bean DockerExecutionRunner dockerExecutionRunner(SandboxProperties properties, WorkerProperties worker, ObjectMapper mapper, io.micrometer.core.instrument.MeterRegistry metrics) {
         if (worker.cleanupTimeoutMs() < 10000)
             throw new IllegalArgumentException("Docker sandbox requires a cleanup timeout of at least 10000 ms");
-        return new DockerExecutionRunner(properties, new DockerCommandClient(properties.dockerExecutable()), mapper);
+        return new DockerExecutionRunner(properties, new DockerCommandClient(properties.dockerExecutable()), mapper, metrics);
     }
 }

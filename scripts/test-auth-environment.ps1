@@ -4,7 +4,7 @@ $fixture = Join-Path ([IO.Path]::GetTempPath()) ('pairforge-auth-test-' + [guid]
 $fixtureScripts = Join-Path $fixture 'scripts'
 [void][IO.Directory]::CreateDirectory($fixtureScripts)
 [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'frontend'))
-$keys = @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD', 'WORKER_DB_PASSWORD', 'JWT_KEY_HEX', 'API_PORT', 'VITE_API_BASE_URL', 'PAIRFORGE_TEST_EXPECTED_API', 'PAIRFORGE_TEST_SANDBOX')
+$keys = @('POSTGRES_PASSWORD', 'RABBITMQ_PASSWORD', 'WORKER_DB_PASSWORD', 'JWT_KEY_HEX', 'API_PORT', 'VITE_API_BASE_URL', 'PAIRFORGE_TEST_EXPECTED_API', 'PAIRFORGE_TEST_SANDBOX', 'PAIRFORGE_TEST_OBSERVABILITY')
 $saved = @{}
 foreach ($key in $keys) { $saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
 try {
@@ -16,11 +16,13 @@ try {
 function Invoke-PairForgeCommand {
     param([string]$Executable, [string[]]$Arguments)
     if ($Arguments -contains 'backend') {
+        if ($env:PAIRFORGE_TEST_OBSERVABILITY -and $Arguments -notcontains '-Dspring-boot.run.profiles=local,observability') { throw 'Missing API observability profile.' }
         if ($env:JWT_KEY_HEX -notmatch '^[a-f0-9]{64}$') { throw 'API did not receive its key.' }
     } elseif ($env:JWT_KEY_HEX) { throw 'Non-API process inherited the signing key.' }
     if ($Arguments -contains 'execution-worker') {
         if ($env:POSTGRES_PASSWORD) { throw 'Worker inherited the bootstrap password.' }
         $expected = if ($env:PAIRFORGE_TEST_SANDBOX) { '-Dspring-boot.run.profiles=local,sandbox' } else { '-Dspring-boot.run.profiles=local' }
+        if ($env:PAIRFORGE_TEST_OBSERVABILITY) { $expected += ',observability' }
         if ($Arguments -notcontains $expected) { throw 'Unexpected worker execution profile.' }
     }
     if ($Executable -eq 'npm.cmd') {
@@ -51,6 +53,10 @@ function Invoke-PairForgeCommand {
         }
         $env:PAIRFORGE_TEST_SANDBOX = 'true'
         & (Join-Path $fixtureScripts 'dev.ps1') -Service worker -Sandbox
+        $env:PAIRFORGE_TEST_OBSERVABILITY = 'true'
+        & (Join-Path $fixtureScripts 'dev.ps1') -Service worker -Sandbox -Observability
+        & (Join-Path $fixtureScripts 'dev.ps1') -Service backend -Observability
+        $env:PAIRFORGE_TEST_OBSERVABILITY = $null
         $env:PAIRFORGE_TEST_SANDBOX = $null
         $refused = $false
         try { & (Join-Path $fixtureScripts 'dev.ps1') -Service backend -Sandbox }

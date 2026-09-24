@@ -11,10 +11,13 @@ public class ExecutionProcessor implements AutoCloseable {
     private final ExecutionRunner runner;
     private final WorkerProperties properties;
     private final ExecutionEventPublisher events;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
     private final ExecutorService runs = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("execution-runner").factory());
     private final ExecutorService cleanup = Executors.newSingleThreadExecutor(Thread.ofPlatform().daemon().name("execution-cleanup").factory());
-    public ExecutionProcessor(ExecutionRepository repository, ExecutionRunner runner, WorkerProperties properties, ExecutionEventPublisher events) {
+    public ExecutionProcessor(ExecutionRepository repository, ExecutionRunner runner, WorkerProperties properties, ExecutionEventPublisher events,
+                              io.micrometer.core.instrument.MeterRegistry metrics) {
         this.repository = repository; this.runner = runner; this.properties = properties; this.events = events;
+        this.metrics = metrics;
     }
     public Outcome process(UUID id) {
         var state = retry(() -> repository.state(id));
@@ -37,6 +40,8 @@ public class ExecutionProcessor implements AutoCloseable {
             return Outcome.ACK;
         }
         var job = claimed.get();
+        metrics.timer("pairforge.execution.queue.wait", "language", job.language())
+                .record(Duration.between(job.createdAt(), job.startedAt()));
         notifyCommitted(job.id()); // Publication time consumes the original claim deadline.
         final ExecutionResult result = run(job, claimStarted);
         persist(job.id(), job.revision(), result);
@@ -50,7 +55,10 @@ public class ExecutionProcessor implements AutoCloseable {
             persist(state.id(), state.revision(), ExecutionResult.interrupted());
         }
     }
-    public void reconcile() throws Exception { runner.reconcile(); }
+    public void reconcile() throws Exception {
+        try { runner.reconcile(); }
+        catch (Exception error) { cleanupFailed("reconcile"); throw error; }
+    }
     public long reconciliationMs() { return runner.reconciliationMs(); }
     private ExecutionResult run(ExecutionRepository.Job job, long claimStarted) {
         // Database/worker clocks may differ. A monotonic local budget prevents skew
@@ -97,21 +105,39 @@ public class ExecutionProcessor implements AutoCloseable {
         var stopped = cleanup.submit(operation);
         try { stopped.get(properties.cleanupTimeoutMs(), TimeUnit.MILLISECONDS); }
         catch (InterruptedException error) {
+            cleanupFailed("stop");
             stopped.cancel(true); Thread.currentThread().interrupt(); throw new IllegalStateException("Cleanup interrupted");
         } catch (ExecutionException | TimeoutException error) {
+            cleanupFailed("stop");
             stopped.cancel(true); throw new IllegalStateException("Cleanup could not be verified");
         }
     }
     private void persist(UUID id, long revision, ExecutionResult result) {
         // Retain this bounded result through retries; never invoke the runner again.
-        retry(() -> {
-            if (repository.complete(id, revision, result) == 0) {
+        int changed = retry(() -> {
+            int updated = repository.complete(id, revision, result);
+            if (updated == 0) {
                 var current = repository.state(id).orElseThrow();
                 if (!current.terminal()) throw new IllegalStateException("Execution ownership changed");
             }
-            return true;
+            return updated;
         });
+        if (changed == 1) {
+            metrics.counter("pairforge.execution.completed", "status", result.status().name(), "reason",
+                    result.failureReason() == null ? "NONE" : result.failureReason().name()).increment();
+            if (result.durationMs() != null)
+                metrics.timer("pairforge.execution.duration", "status", result.status().name())
+                        .record(result.durationMs(), TimeUnit.MILLISECONDS);
+            org.slf4j.LoggerFactory.getLogger(getClass()).atInfo().addKeyValue("executionId", id)
+                    .addKeyValue("status", result.status().name()).addKeyValue("revision", revision + 1)
+                    .log("Execution committed");
+        }
         notifyCommitted(id);
+    }
+    private void cleanupFailed(String operation) {
+        metrics.counter("pairforge.execution.cleanup.failures", "operation", operation).increment();
+        org.slf4j.LoggerFactory.getLogger(getClass()).atWarn().addKeyValue("operation", operation)
+                .log("Execution cleanup could not be verified");
     }
     private void notifyCommitted(UUID id) {
         try { events.publish(repository.event(id)); }

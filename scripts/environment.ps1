@@ -31,7 +31,7 @@ function Import-PairForgeEnvironment {
         'WORKER_DB_USER', 'WORKER_DB_PASSWORD',
         'JWT_KEY_HEX',
         'REDIS_PORT', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD', 'RABBITMQ_PORT',
-        'API_PORT', 'WORKER_PORT', 'FRONTEND_PORT'
+        'API_PORT', 'WORKER_PORT', 'FRONTEND_PORT', 'API_MANAGEMENT_PORT', 'WORKER_MANAGEMENT_PORT'
     )
     if (Test-Path -LiteralPath $envPath) {
         foreach ($line in [IO.File]::ReadAllLines($envPath)) {
@@ -50,7 +50,7 @@ function Import-PairForgeEnvironment {
             throw "$name is required. Initialize .env or set the process environment."
         }
     }
-    foreach ($name in @('POSTGRES_PORT', 'REDIS_PORT', 'RABBITMQ_PORT', 'API_PORT', 'WORKER_PORT', 'FRONTEND_PORT')) {
+    foreach ($name in @('POSTGRES_PORT', 'REDIS_PORT', 'RABBITMQ_PORT', 'API_PORT', 'WORKER_PORT', 'FRONTEND_PORT', 'API_MANAGEMENT_PORT', 'WORKER_MANAGEMENT_PORT')) {
         $value = [Environment]::GetEnvironmentVariable($name, 'Process')
         if ($value -and ($value -notmatch '^\d{1,5}$' -or [int]$value -lt 1 -or [int]$value -gt 65535)) {
             throw "$name must be a TCP port from 1 to 65535."

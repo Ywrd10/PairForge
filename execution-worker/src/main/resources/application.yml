@@ -49,7 +49,15 @@ pairforge:
     cleanup-timeout-ms: 2000
     retry-backoff-ms: 100
 
+logging:
+  structured:
+    format:
+      console: logstash
+
 management:
+  metrics:
+    tags:
+      application: pairforge-execution-worker
   endpoints:
     web:
       exposure:

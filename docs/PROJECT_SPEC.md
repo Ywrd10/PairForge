@@ -287,6 +287,14 @@ The system should expose meaningful operational metrics including:
 - queue waiting time;
 - execution duration.
 
+Milestone 13 exposes these measurements through an opt-in, loopback-only
+Prometheus management listener on each JVM. Counters are process-local and may
+miss uncertain commits; durable execution history remains authoritative. Queue
+waiting time includes dispatch and is separate from runner duration and its
+preparation/compilation/runtime phase timers. Structured logs exclude credentials,
+invitation tokens, and submitted source/output. See Architecture §15 for exact
+metric definitions and access restrictions.
+
 ---
 
 ### Continuous Integration

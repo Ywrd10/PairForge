@@ -13,14 +13,15 @@ public class WorkerConfiguration {
     @Bean ExecutionRepository executionRepository(JdbcTemplate jdbc) { return new ExecutionRepository(jdbc); }
     @Bean(name = "workerExecution", destroyMethod = "close")
     ExecutionConsumer workerExecution(ConnectionFactory connection, ObjectMapper mapper, ExecutionRepository repository,
-                                      ObjectProvider<ExecutionRunner> runners, WorkerProperties properties, ExecutionEventPublisher events) {
+                                      ObjectProvider<ExecutionRunner> runners, WorkerProperties properties, ExecutionEventPublisher events,
+                                      io.micrometer.core.instrument.MeterRegistry metrics) {
         ExecutionProcessor processor = null;
         if (properties.enabled()) {
             ExecutionRunner runner = runners.getIfAvailable();
             if (runner == null) throw new IllegalStateException("Consumption requires an enabled, configured sandbox ExecutionRunner");
             if (!properties.previousWorkerStopped())
                 throw new IllegalStateException("Confirm the previous worker is stopped before enabling startup recovery");
-            processor = new ExecutionProcessor(repository, runner, properties, events);
+            processor = new ExecutionProcessor(repository, runner, properties, events, metrics);
         }
         return new ExecutionConsumer(connection, mapper, processor, properties);
     }

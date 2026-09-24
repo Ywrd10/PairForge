@@ -81,6 +81,9 @@ pairforge:
 # Driver constraint messages can contain rejected row values. Error handling logs
 # only exception types and request IDs instead.
 logging:
+  structured:
+    format:
+      console: logstash
   level:
     org.hibernate.engine.jdbc.spi.SqlExceptionHelper: "OFF"
     # Parser errors may include raw STOMP frames (tokens/source). Our handler logs
@@ -88,6 +91,9 @@ logging:
     org.springframework.web.socket.messaging.StompSubProtocolHandler: "OFF"
 
 management:
+  metrics:
+    tags:
+      application: pairforge-backend
   endpoints:
     web:
       exposure:

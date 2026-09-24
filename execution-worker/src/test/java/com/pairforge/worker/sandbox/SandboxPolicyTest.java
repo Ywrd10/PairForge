@@ -43,7 +43,7 @@ class SandboxPolicyTest {
     }
     @Test void kernelMustEnforceEveryRequiredControl() {
         var p = SandboxTestSupport.bind(Map.of());
-        var runner = new DockerExecutionRunner(p,new DockerCommandClient("docker"),new ObjectMapper());
+        var runner = new DockerExecutionRunner(p,new DockerCommandClient("docker"),new ObjectMapper(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         String valid = "10001\n134217728\n0\n32\n100000 100000\nCapEff:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n";
         runner.verifyKernel(valid,"PYTHON");
         for (String invalid : List.of(valid.replace("10001","0"),valid.replace("134217728","max"),valid.replace("\n0\n","\nmax\n"),

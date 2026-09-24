@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import java.time.Instant;
 import java.util.Collection;
 
 public interface ExecutionRepository extends JpaRepository<Execution, UUID> {
@@ -28,10 +27,10 @@ public interface ExecutionRepository extends JpaRepository<Execution, UUID> {
     Slice<ExecutionDtos.Summary> history(@Param("room") UUID room, Pageable pageable);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            update Execution e set e.status = com.pairforge.api.execution.ExecutionStatus.FAILED,
-                e.failureReason = :reason, e.completedAt = :completed, e.stateRevision = e.stateRevision + 1
-            where e.id = :id and e.status = com.pairforge.api.execution.ExecutionStatus.QUEUED
-            """)
-    int failQueued(@Param("id") UUID id, @Param("reason") FailureReason reason, @Param("completed") Instant completed);
+    @Query(value = """
+            update executions set status='FAILED', failure_reason=:reason,
+                completed_at=greatest(clock_timestamp(),created_at), state_revision=state_revision+1
+            where id=:id and status='QUEUED'
+            """, nativeQuery = true)
+    int failQueued(@Param("id") UUID id, @Param("reason") String reason);
 }

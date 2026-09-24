@@ -9,10 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 12 (DONE). The reliability failure matrix, combined
-outages, bounded retries, recovery, and resource cleanup pass local acceptance
-checks. The default worker remains health-only. Milestone 13 remains TODO and
-requires a separate implementation request.
+Current milestone: Milestone 13 (DONE). Restricted Prometheus metrics, structured
+logging, and observability acceptance checks pass. Milestone 14
+remains TODO and requires a separate implementation request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1477,7 +1476,7 @@ documented. This milestone does not defer correctness required by earlier work.
 
 ## Milestone 13 — Observability
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1494,6 +1493,56 @@ Deliverables:
 Acceptance test: metrics reflect representative successful/failed/timed-out jobs
 and queue wait/runtime separately; management exposure is restricted and logs
 contain no credentials, invitation tokens, or submitted source/output by default.
+
+### Implementation and verification (2026-09-23)
+
+- Milestone 12 was already committed/pushed as `5aaa23a` and `ae483e0`; confirmed
+  local HEAD and GitHub master both match `ae483e0`. Its final
+  [CI run passed](https://github.com/Ywrd10/PairForge/actions/runs/35875340626).
+- Added Boot-managed Prometheus registries and opt-in observability profiles.
+  Separate loopback listeners default to API 8082 / worker 8083; health details
+  stay hidden, JMX remains disabled, application ports reject scrapes, and unsafe
+  public/shared listener configurations fail startup. Default exposure is still
+  health-only; observability does not enable sandbox consumption.
+- Added active/authenticated WebSocket gauges, committed submission/outcome
+  counters, database-clock queue timing, stored runner-duration timers, separate
+  preparation/compilation/runtime timers, and cleanup-failure metrics. Existing
+  dispatch/event/uncertain-persistence counters are exported. Outcome counts are
+  independent of notification delivery and do not increase on duplicate jobs or
+  persistence retries. Uncertain commits can undercount; no durable ledger or
+  outbox was added. Labels are bounded and omit private identifiers/payloads.
+- New execution creation and API dispatch-failure completion use PostgreSQL
+  timestamps, preserving ordering across host-clock differences without schema
+  changes. Stored duration and REST contracts remain unchanged. JSON logs carry
+  safe request/execution identifiers; request context clears on exceptions.
+- Fresh root Maven `clean verify` passed **351 Java tests** (243 backend,
+  108 worker), zero failures/errors/skips. Tests verify restricted scrapes with
+  and without the profile, unsafe bind rejection, dependency loss, label bounds,
+  HTTP/WS metrics, real successful/failed/timed-out executions, separate phase and
+  queue timing, duplicate/uncertain-commit behavior, cleanup failure, timestamp
+  ordering, structured records, and exclusion of passwords/tokens/invitations/
+  source/output. Existing authorization, recovery and sandbox suites also pass.
+- Frontend clean install, lint, typecheck, **65 unit tests**, production build,
+  and audit pass (zero reported vulnerabilities). All **12 browser tests** pass
+  with retries disabled, run after Java/container verification completed.
+- PowerShell 7 and 5.1 credential/launcher tests, script syntax, Actionlint,
+  Compose validation, whitespace and secret-exclusion checks pass. The live
+  `smoke.ps1 -Observability -CheckOutages` run passed startup, private scrapes,
+  application-port denial, health/liveness and all three dependency stop/start
+  recovery checks using the non-consuming worker. Launched app processes were
+  stopped; final inspection found no sandbox/browser containers or browser
+  workspaces. Existing Compose dependencies remain healthy and data is retained.
+- Initial checks exposed test-fixture constructor/registry-cleanup mistakes and
+  Spring test contexts disabling exporters by default; these were corrected
+  before passing verification. Smoke checks now wait for startup before asserting
+  scrape denial. Docker Desktop's recurring stale runtime-socket error required
+  a reversible socket-directory backup/restart; no data/settings reset or skipped
+  integration test was used. No unresolved failure or observed flakiness remains.
+- All local acceptance criteria pass. M13 changes remain uncommitted for review;
+  remote CI for this snapshot is **unverified**, not represented by the M12 run.
+  Existing bundle/JVM advisories remain non-blocking. No additional service,
+  frontend feature, deployment, CI-hardening work, or Milestone 14 implementation
+  was introduced. **Milestone 14 remains TODO.**
 
 ---
 

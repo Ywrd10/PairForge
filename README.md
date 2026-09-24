@@ -2,7 +2,8 @@
 
 PairForge is a collaborative coding and asynchronous Java/Python execution
 platform being built one reviewed milestone at a time. This repository currently
-contains **Milestone 11 real-time execution results** on the authentication and room
+contains **Milestone 13 observability** alongside real-time execution, reliability,
+authentication and room functionality. The core workflow builds on that
 foundation: register, log in, create rooms, share invitations, join, and open
 authorized rooms with a shared Java/Python editor. Accepted documents live in
 Redis with a 24-hour inactivity TTL; simultaneous edits use full-document
@@ -408,6 +409,43 @@ maps each requirement to tests. Combined-outage tests use isolated PostgreSQL,
 Redis, and RabbitMQ containers; sandbox fault injection never stops the shared
 Docker daemon. Run Java and browser container suites sequentially on the local
 Windows machine to avoid the previously observed Chromium resource error.
+
+## Observability (Milestone 13)
+
+Start either JVM with `-Observability`; worker execution still separately requires
+`-Sandbox` and the documented predecessor-stop attestation:
+
+```powershell
+./scripts/dev.ps1 -Service backend -Observability
+./scripts/dev.ps1 -Service worker -Sandbox -Observability
+./scripts/smoke.ps1 -Observability
+curl.exe http://127.0.0.1:8082/actuator/prometheus
+curl.exe http://127.0.0.1:8083/actuator/prometheus
+```
+
+The health probes move to those management ports when this profile is active.
+`API_MANAGEMENT_PORT` / `WORKER_MANAGEMENT_PORT` override 8082/8083. Both listeners
+are loopback-only; scrape locally or through an authenticated SSH tunnel. Do not
+proxy management endpoints publicly. Without the profile, health remains on the
+application ports and Prometheus is unavailable. `-Observability` never enables
+worker execution by itself. `-CheckOutages` is still an explicit smoke-test opt-in
+and should use the default non-consuming worker as documented below.
+
+Both processes emit JSON logs with safe request/execution correlation fields.
+Metric IDs never contain room/user/execution IDs or source/output. Counters reset
+on restart and can undercount uncertain commits; PostgreSQL history remains the
+durable record. Queue wait includes dispatch; execution duration excludes queue
+wait and final cleanup. Separate phase timers distinguish preparation, Java
+compilation and runtime. See [the metric contract](docs/ARCHITECTURE.md#milestone-13-observability-contract)
+for exact definitions and failure-counter semantics.
+
+Example queries for an external Prometheus scraper (no server is added here):
+
+```promql
+sum by (status) (rate(pairforge_execution_completed_total[5m]))
+sum(rate(pairforge_execution_queue_wait_seconds_sum[5m])) / sum(rate(pairforge_execution_queue_wait_seconds_count[5m]))
+sum by (phase) (rate(pairforge_execution_phase_seconds_sum[5m])) / sum by (phase) (rate(pairforge_execution_phase_seconds_count[5m]))
+```
 
 ## Room API
 

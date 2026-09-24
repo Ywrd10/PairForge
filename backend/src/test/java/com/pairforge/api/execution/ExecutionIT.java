@@ -32,7 +32,53 @@ import static org.mockito.Mockito.*;
 
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class ExecutionIT {
+    @Test void committedSubmissionAndDispatchFailureHaveSafeMetricsAndStructuredLogs(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        var owner = actor(); var room = room(owner);
+        String secretSource = "print('private-source-" + UUID.randomUUID() + "')";
+        var submitted = metrics.counter("pairforge.execution.submitted", "language", "PYTHON");
+        var failed = metrics.counter("pairforge.execution.completed", "status", "FAILED", "reason", "DISPATCH_FAILED");
+        double beforeSubmitted = submitted.count(), beforeFailed = failed.count();
+        var before = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
+        doReturn(FailureReason.DISPATCH_FAILED).when(publisher).publish(any());
+        var response = request("POST", path(room), source(secretSource), owner.token());
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(submitted.count()).isEqualTo(beforeSubmitted + 1);
+        assertThat(failed.count()).isEqualTo(beforeFailed + 1);
+        var row = executions.findByRoomIdOrderByCreatedAtDescIdDesc(room, org.springframework.data.domain.PageRequest.of(0, 1)).getContent().getFirst();
+        var after = jdbc.queryForObject("select clock_timestamp()", java.sql.Timestamp.class).toInstant();
+        assertThat(row.getCreatedAt()).isBetween(before, after);
+        String line = output.getAll().lines().filter(value -> value.contains("Execution committed") && value.contains(row.getId().toString())).findFirst().orElseThrow();
+        var event = json.readTree(line);
+        assertThat(event.path("executionId").asText()).isEqualTo(row.getId().toString());
+        assertThat(event.path("requestId").asText()).isEqualTo(response.headers().firstValue("X-Request-ID").orElseThrow());
+        assertThat(output.getAll()).doesNotContain(secretSource, owner.token(), KEY, PG.getPassword(), RABBIT.getAdminPassword());
+    }
+    @Test void invitationAndPasswordBodiesStayOutOfStructuredLogs(org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        var owner = actor(); var member = actor();
+        var created = rooms.create(owner.id(), new RoomDtos.CreateRequest("Private", Language.PYTHON));
+        String invitation = created.invitationToken();
+        var joined = request("POST", "/api/rooms/" + created.room().id() + "/join",
+                json.writeValueAsString(Map.of("invitationToken", invitation)), member.token());
+        assertThat(joined.statusCode()).isEqualTo(200);
+        String password = "never-log-password-" + UUID.randomUUID();
+        // Invalid email avoids BCrypt work while still exercising the real JSON boundary.
+        assertThat(request("POST", "/api/auth/login", json.writeValueAsString(Map.of("email", "invalid", "password", password)), null).statusCode()).isEqualTo(400);
+        assertThat(output.getAll()).doesNotContain(invitation, password, member.token());
+    }
+    @Test void dispatchFailurePreservesDatabaseTimestampOrdering() throws Exception {
+        var owner = actor(); var room = room(owner);
+        doAnswer(call -> {
+            UUID id = call.getArgument(0);
+            jdbc.update("update executions set created_at=clock_timestamp()+interval '10 seconds' where id=?", id);
+            return FailureReason.DISPATCH_FAILED;
+        }).when(publisher).publish(any());
+        assertThat(request("POST", path(room), source("print(1)"), owner.token()).statusCode()).isEqualTo(503);
+        var row = executions.findByRoomIdOrderByCreatedAtDescIdDesc(room, org.springframework.data.domain.PageRequest.of(0, 1)).getContent().getFirst();
+        assertThat(row.getCompletedAt()).isAfterOrEqualTo(row.getCreatedAt());
+    }
     @Container static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:17.11-bookworm").withPassword(UUID.randomUUID().toString());
     @Container static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4.11-bookworm").withExposedPorts(6379);
     @Container static final RabbitMQContainer RABBIT = new RabbitMQContainer("rabbitmq:4.1.8")

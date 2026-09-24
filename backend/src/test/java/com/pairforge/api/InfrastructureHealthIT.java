@@ -96,7 +96,7 @@ class InfrastructureHealthIT {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"env", "configprops", "heapdump", "beans", "metrics", "loggers", "shutdown"})
+    @ValueSource(strings = {"env", "configprops", "heapdump", "beans", "metrics", "prometheus", "loggers", "shutdown"})
     void doesNotExposeOtherActuatorEndpoints(String endpoint) throws Exception {
         assertThat(get("/actuator/" + endpoint).statusCode()).isEqualTo(401);
     }

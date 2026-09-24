@@ -16,9 +16,10 @@ class DockerSandboxIT {
     @TempDir static Path temporary;
     static DockerExecutionRunner runner;
     static SandboxProperties p;
+    static final io.micrometer.core.instrument.simple.SimpleMeterRegistry metrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
     @BeforeAll static void prepare() throws Exception {
         p = SandboxTestSupport.properties(temporary, "test-" + UUID.randomUUID().toString().substring(0, 8), Map.of());
-        runner = new DockerExecutionRunner(p, new DockerCommandClient("docker"), new ObjectMapper());
+        runner = new DockerExecutionRunner(p, new DockerCommandClient("docker"), new ObjectMapper(), metrics);
         runner.initialize();
     }
     @AfterEach void clean() throws Exception {
@@ -27,14 +28,18 @@ class DockerSandboxIT {
         try (var paths = Files.list(temporary.resolve(p.namespace()))) { assertThat(paths.toList()).isEmpty(); }
     }
     ExecutionResult run(String language, String source) throws Exception {
-        var result = runner.run(new ExecutionRepository.Job(UUID.randomUUID(), language, source, Instant.now().plusSeconds(30), 1));
+        var result = runner.run(new ExecutionRepository.Job(UUID.randomUUID(), language, source, Instant.now().plusSeconds(30), 1, Instant.now().minusSeconds(2), Instant.now()));
         System.out.printf("Sandbox fixture language=%s status=%s reason=%s durationMs=%d%n", language, result.status(), result.failureReason(), result.durationMs());
         return result;
     }
     @Test void validJavaUsesStandardLibraryAndClosedStdin() throws Exception {
+        var compile = metrics.timer("pairforge.execution.phase", "language", "JAVA", "phase", "compilation");
+        long before = compile.count();
         var result = run("JAVA", "public class Main { public static void main(String[] a) throws Exception { System.out.println(java.util.List.of(1,2,3)); System.out.println(System.in.read()); } }");
         assertThat(result.status()).isEqualTo(ExecutionResult.Status.SUCCEEDED);
         assertThat(result.stdout()).isEqualTo("[1, 2, 3]\n-1\n"); assertThat(result.stderr()).isEmpty();
+        assertThat(compile.count()).isEqualTo(before + 1);
+        assertThat(compile.totalTime(java.util.concurrent.TimeUnit.MILLISECONDS)).isPositive();
     }
     @Test void validPythonUsesStandardLibraryAndClosedStdin() throws Exception {
         var result = run("PYTHON", "import sys, json\nprint(json.dumps([1,2,3]))\nprint(repr(sys.stdin.read()))");
@@ -118,7 +123,7 @@ class DockerSandboxIT {
     }
     @Test void cpuQuotaActuallyThrottlesBusyProgram() throws Exception {
         var limited = SandboxTestSupport.properties(temporary, p.namespace() + "-cpu", Map.of("cpus", 0.5));
-        var cpuRunner = new DockerExecutionRunner(limited, new DockerCommandClient("docker"), new ObjectMapper());
+        var cpuRunner = new DockerExecutionRunner(limited, new DockerCommandClient("docker"), new ObjectMapper(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         cpuRunner.initialize();
         var result = cpuRunner.run(new ExecutionRepository.Job(UUID.randomUUID(), "PYTHON", """
                 import time
@@ -127,7 +132,7 @@ class DockerSandboxIT {
                 stats=dict(line.split() for line in open('/sys/fs/cgroup/cpu.stat'))
                 assert int(stats['nr_throttled']) > 0
                 print('cpu throttled')
-                """, Instant.now().plusSeconds(30), 1));
+                """, Instant.now().plusSeconds(30), 1, Instant.now().minusSeconds(2), Instant.now()));
         cpuRunner.reconcile();
         assertThat(docker("ps", "-aq", "--filter", "label=" + DockerExecutionRunner.OWNER + "=" + limited.namespace())).isBlank();
         assertThat(result.status()).withFailMessage(result.stderr()).isEqualTo(ExecutionResult.Status.SUCCEEDED);

@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.pairforge.api.common.ApiException;
 import com.pairforge.api.room.RoomService;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -56,12 +54,16 @@ public class ExecutionService {
         finally { admissionLock.unlock(); }
 
         // PostgreSQL commit has completed. No database transaction spans broker I/O.
+        metrics.counter("pairforge.execution.submitted", "language", execution.getLanguage().name()).increment();
+        org.slf4j.LoggerFactory.getLogger(getClass()).atInfo().addKeyValue("executionId", execution.getId())
+                .addKeyValue("roomId", room).addKeyValue("status", "QUEUED").log("Execution committed");
         events.publish(new ExecutionEvent(1, execution.getId(), room, "QUEUED", execution.getStateRevision()));
         var failure = publisher.publish(execution.getId());
         if (failure != null) {
             try {
-                transactions.executeWithoutResult(status -> executions.failQueued(execution.getId(), failure,
-                        Instant.now().truncatedTo(ChronoUnit.MICROS)));
+                Integer changed = transactions.execute(status -> executions.failQueued(execution.getId(), failure.name()));
+                if (Integer.valueOf(1).equals(changed))
+                    metrics.counter("pairforge.execution.completed", "status", "FAILED", "reason", failure.name()).increment();
             } catch (RuntimeException error) { throw unknown(execution.getId(), error); }
         }
         final Execution current;

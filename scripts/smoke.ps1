@@ -1,6 +1,7 @@
 param(
     # Explicit opt-in: temporarily stops each PairForge Compose dependency.
-    [switch]$CheckOutages
+    [switch]$CheckOutages,
+    [switch]$Observability
 )
 
 . (Join-Path $PSScriptRoot 'environment.ps1')
@@ -11,6 +12,14 @@ $workerPort = if ($env:WORKER_PORT) { $env:WORKER_PORT } else { '8081' }
 $frontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { '5173' }
 $apiUrl = "http://127.0.0.1:$apiPort"
 $workerUrl = "http://127.0.0.1:$workerPort"
+$apiApplicationUrl = $apiUrl
+$workerApplicationUrl = $workerUrl
+if ($Observability) {
+    $apiManagementPort = if ($env:API_MANAGEMENT_PORT) { $env:API_MANAGEMENT_PORT } else { '8082' }
+    $workerManagementPort = if ($env:WORKER_MANAGEMENT_PORT) { $env:WORKER_MANAGEMENT_PORT } else { '8083' }
+    $apiUrl = "http://127.0.0.1:$apiManagementPort"
+    $workerUrl = "http://127.0.0.1:$workerManagementPort"
+}
 $handler = New-Object System.Net.Http.HttpClientHandler
 $handler.UseProxy = $false
 $client = New-Object System.Net.Http.HttpClient($handler)
@@ -55,11 +64,17 @@ try {
         Wait-Probe "$baseUrl/actuator/health" 200 'UP'
         Wait-Probe "$baseUrl/actuator/health/readiness" 200 'UP'
         Assert-Http "$baseUrl/actuator/health/liveness" 200 'UP' | Out-Null
+        if ($Observability) {
+            $scrape = Assert-Http "$baseUrl/actuator/prometheus" 200
+            if ($scrape -notmatch 'jvm_memory_used_bytes') { throw 'Prometheus scrape is missing JVM metrics.' }
+        }
         foreach ($endpoint in @('env', 'configprops', 'heapdump', 'beans', 'metrics', 'loggers', 'shutdown')) {
             $deniedCode = if ($baseUrl -eq $apiUrl) { 401 } else { 404 }
             Assert-Http "$baseUrl/actuator/$endpoint" $deniedCode | Out-Null
         }
     }
+    Assert-Http "$apiApplicationUrl/actuator/prometheus" 401 | Out-Null
+    Assert-Http "$workerApplicationUrl/actuator/prometheus" 404 | Out-Null
     $html = Assert-Http "http://127.0.0.1:$frontendPort" 200
     if ($html -notmatch '<title>PairForge</title>') { throw 'Frontend did not serve PairForge.' }
     Write-Host 'Startup, health, endpoint exposure, and frontend HTTP checks passed.'

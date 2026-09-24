@@ -18,7 +18,8 @@ import org.springframework.web.filter.CorsFilter;
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfiguration {
-    @Bean SecurityFilterChain security(HttpSecurity http, AuthProperties properties, ApiErrors errors) throws Exception {
+    @Bean SecurityFilterChain security(HttpSecurity http, AuthProperties properties, ApiErrors errors,
+                                      org.springframework.core.env.Environment environment) throws Exception {
         var corsConfig = new CorsConfiguration();
         corsConfig.setAllowedOrigins(properties.allowedOrigins());
         corsConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
@@ -44,6 +45,13 @@ public class SecurityConfiguration {
                 // Revisit CSRF before introducing cookie, session, or Basic authentication.
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
+                        // Scrapes are local-host operations on the separate management listener only.
+                        .requestMatchers(request -> environment.matchesProfiles("observability")
+                                && "GET".equals(request.getMethod())
+                                && "/actuator/prometheus".equals(request.getRequestURI())
+                                && request.getLocalPort() == environment.getProperty("local.management.port", Integer.class, -1)
+                                && request.getLocalPort() != environment.getProperty("local.server.port", Integer.class, -1))
+                        .permitAll()
                         // The upgrade carries no browser credentials. STOMP CONNECT authenticates it.
                         .requestMatchers(HttpMethod.GET, "/ws").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/liveness",
