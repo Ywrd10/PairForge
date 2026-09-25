@@ -1,0 +1,11 @@
+[Unit]
+Description=PairForge encrypted off-host PostgreSQL backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/pairforge/backup.env
+ExecStart=/usr/bin/pwsh -NoProfile -File /opt/pairforge/current/scripts/backup-production.ps1 -Bucket ${BACKUP_BUCKET}
+TimeoutStartSec=300
+UMask=0077

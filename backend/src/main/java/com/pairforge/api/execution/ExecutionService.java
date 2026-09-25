@@ -25,18 +25,22 @@ public class ExecutionService {
     private final TransactionTemplate transactions;
     private final MeterRegistry metrics;
     private final ExecutionEventPublisher events;
+    private final ExecutionAccess access;
     // Covers count + insert + commit, never publication; this MVP runs one API instance.
     private final ReentrantLock admissionLock = new ReentrantLock();
     public ExecutionService(ExecutionRepository executions, RoomService rooms, ExecutionAdmission admission,
                             ExecutionJobPublisher publisher, ExecutionProperties properties,
-                            PlatformTransactionManager manager, MeterRegistry metrics, ExecutionEventPublisher events) {
+                            PlatformTransactionManager manager, MeterRegistry metrics, ExecutionEventPublisher events,
+                            ExecutionAccess access) {
         this.executions = executions; this.rooms = rooms; this.admission = admission; this.publisher = publisher;
         this.properties = properties; this.transactions = new TransactionTemplate(manager); this.metrics = metrics;
         this.transactions.setTimeout(5);
         this.events = events;
+        this.access = access;
     }
     public Receipt submit(UUID user, UUID room, JsonNode body) {
         rooms.get(user, room);
+        access.requireApproved(user);
         var request = Submission.parse(body, properties.sourceBytes());
         admission.check(user);
         try {

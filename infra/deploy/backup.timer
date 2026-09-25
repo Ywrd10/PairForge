@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily PairForge backup during operating hours
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 UTC
+Persistent=true
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target

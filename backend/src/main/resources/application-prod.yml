@@ -1,0 +1,37 @@
+# Same-origin HTTPS terminates at CloudFront. Caddy is its private HTTP origin.
+server:
+  address: 127.0.0.1
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '127\.0\.0\.1'
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+spring:
+  datasource:
+    url: jdbc:postgresql://${DATABASE_HOST}:${DATABASE_PORT:5432}/${DATABASE_NAME:pairforge}?sslmode=verify-full&sslrootcert=${DATABASE_CA_FILE}
+  flyway:
+    url: ${spring.datasource.url}
+    user: ${MIGRATION_USER}
+    password: ${MIGRATION_PASSWORD}
+  ssl:
+    bundle:
+      pem:
+        broker:
+          truststore:
+            certificate: file:${BROKER_CA_FILE}
+  rabbitmq:
+    virtual-host: pairforge
+    port: ${RABBITMQ_PORT:5671}
+    ssl:
+      enabled: true
+      bundle: broker
+      verify-hostname: true
+      validate-server-certificate: true
+pairforge:
+  auth:
+    allowed-origins:
+      - ${PUBLIC_ORIGIN}
+  execution-access:
+    restricted: true
+    users: ${EXECUTION_APPROVED_USERS:}

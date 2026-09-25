@@ -1,0 +1,19 @@
+#cloud-config
+ssh_pwauth: false
+disable_root: true
+write_files:
+  - path: /etc/ssh/sshd_config.d/00-pairforge.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+  - path: /etc/systemd/journald.conf.d/pairforge.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      SystemMaxUse=200M
+      RuntimeMaxUse=50M
+runcmd:
+  - [systemctl, restart, ssh]
+  - [systemctl, restart, systemd-journald]

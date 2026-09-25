@@ -1,0 +1,21 @@
+[Unit]
+Description=PairForge execution worker (operator-approved start only)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User=pairforge-worker
+Group=pairforge-worker
+SupplementaryGroups=docker
+WorkingDirectory=/opt/pairforge/current
+EnvironmentFile=/etc/pairforge/worker.env
+# Root-owned one-use approval is consumed before start. Never enable automatic restart.
+ExecStartPre=/usr/bin/test -f /etc/pairforge/worker-start-approved
+ExecStartPre=+/usr/bin/rm /etc/pairforge/worker-start-approved
+ExecStart=/usr/bin/java -Xms64m -Xmx256m -jar /opt/pairforge/current/worker.jar --spring.profiles.active=prod,sandbox,observability --pairforge.worker.previous-worker-stopped=true
+Restart=no
+TimeoutStopSec=45
+UMask=0077
+# No PrivateTmp: Docker must see the same canonical source paths as the worker.
+# Docker access grants host-level trust; this unit is only for the dedicated VM.

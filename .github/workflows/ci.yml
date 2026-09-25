@@ -37,6 +37,11 @@ jobs:
           ./scripts/test-provision-worker.ps1
           ./scripts/test-auth-environment.ps1
           ./scripts/test-ci-checks.ps1
+          ./scripts/test-deployment-config.ps1
+          ./scripts/test-aws-deployment-context.ps1
+          ./scripts/test-production-admission.ps1
+          ./scripts/test-production-worker-start.ps1
+          ./scripts/test-deployment-storage.ps1
       - name: Build and run real-container tests
         run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
       - name: Validate required Java suites and produce sanitized diagnostics

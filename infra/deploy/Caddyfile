@@ -1,0 +1,55 @@
+{
+	admin 127.0.0.1:2019
+}
+
+:8084 {
+	# Private HTTP origin. HTTPS/WSS terminates at CloudFront, not here.
+	bind {$ORIGIN_BIND}
+	# Preserve this order: authentication must run before any proxy/static handle.
+	route {
+		@unconfigured expression `'{$ORIGIN_TOKEN}' == ''`
+		respond @unconfigured 503
+		@unauthorized not header X-PairForge-Origin {$ORIGIN_TOKEN}
+		respond @unauthorized 403
+		# CloudFront generates this header. Its origin request policy must include it.
+		# The private security group and origin token are BOTH required trust checks.
+		map {http.request.header.CloudFront-Viewer-Address} {viewer_ip} {
+			~^([0-9.]+):[0-9]+$ ${1}
+			~^\[([0-9a-fA-F:]+)\]:[0-9]+$ ${1}
+			default ""
+		}
+		@missingViewer expression `{viewer_ip} == ''`
+		respond @missingViewer 400
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy no-referrer
+		}
+		@private path /actuator /actuator/* /.env /.git /.git/*
+		handle @private {
+			respond 404
+		}
+		@api path /api /api/* /ws
+		handle @api {
+			request_body {
+				max_size 512KB
+			}
+			reverse_proxy {$API_UPSTREAM:127.0.0.1:8080} {
+				header_up X-Forwarded-For {viewer_ip}
+				header_up X-Forwarded-Proto https
+				header_up -Forwarded
+				header_up -X-PairForge-Origin
+				header_up -CloudFront-Viewer-Address
+				transport http {
+					dial_timeout 3s
+					response_header_timeout 20s
+				}
+			}
+		}
+		handle {
+			root * {$FRONTEND_ROOT:/opt/pairforge/current/frontend}
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

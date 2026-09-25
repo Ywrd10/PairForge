@@ -1,0 +1,25 @@
+[Unit]
+Description=PairForge private CloudFront origin and frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=caddy
+Group=caddy
+EnvironmentFile=/etc/pairforge/caddy.env
+Environment=XDG_DATA_HOME=/var/lib/caddy
+Environment=XDG_CONFIG_HOME=/var/lib/caddy
+ExecStart=/usr/local/bin/caddy run --config /opt/pairforge/current/infra/deploy/Caddyfile --adapter caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /opt/pairforge/current/infra/deploy/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+CapabilityBoundingSet=
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/caddy
+ProtectHome=true
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

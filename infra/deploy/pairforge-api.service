@@ -1,0 +1,23 @@
+[Unit]
+Description=PairForge API
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+User=pairforge-api
+Group=pairforge-api
+WorkingDirectory=/opt/pairforge/current
+EnvironmentFile=/etc/pairforge/api.env
+ExecStart=/usr/bin/java -Xms128m -Xmx768m -jar /opt/pairforge/current/backend.jar --spring.profiles.active=prod,observability
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

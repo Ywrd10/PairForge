@@ -1717,6 +1717,13 @@ do not claim hostile-workload safety from Docker alone.
 
 Do not add Kubernetes solely for portfolio value.
 
+Milestone 15's approved AWS deployment uses two EC2 hosts and a CloudFront VPC
+origin. The generated CloudFront hostname provides browser HTTPS/WSS; the private
+CloudFront-to-Caddy hop is explicitly approved HTTP, not end-to-end TLS. Worker
+database and broker connections still verify TLS certificates and hostnames.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the cost envelope, network and IAM
+boundaries, tester allowlist, shutdown/backup contract and outstanding acceptance.
+
 ---
 
 ## 19. Architectural Tradeoffs
