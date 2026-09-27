@@ -65,19 +65,21 @@ try {
     Set-FixtureFile 'execution-worker/src/test/java/demo/WorkerIT.java' ''
     Set-FixtureFile 'frontend/src/example.test.tsx' ''
     Set-FixtureFile 'frontend/e2e/example.spec.ts' ''
+    Set-FixtureFile 'frontend/tools/load/example.test.ts' ''
     $reportPaths = @(
         @('backend/target/surefire-reports/TEST-demo.ExampleTest.xml', 'demo.ExampleTest'),
         @('backend/target/failsafe-reports/TEST-demo.ExampleIT.xml', 'demo.ExampleIT'),
         @('execution-worker/target/surefire-reports/TEST-demo.WorkerTest.xml', 'demo.WorkerTest'),
         @('execution-worker/target/failsafe-reports/TEST-demo.WorkerIT.xml', 'demo.WorkerIT'),
         @('frontend/test-results/unit.xml', 'src/example.test.tsx'),
-        @('frontend/test-results/browser.xml', 'example.spec.ts')
+        @('frontend/test-results/browser.xml', 'example.spec.ts'),
+        @('frontend/test-results/load.xml', 'tools/load/example.test.ts')
     )
     foreach ($report in $reportPaths) { Set-FixtureFile $report[0] (Suite-Xml $report[1]) }
-    foreach ($kindCase in @('Java', 'Unit', 'Browser')) {
+    foreach ($kindCase in @('Java', 'Unit', 'Browser', 'Load')) {
         Test-CiReports -Kind $kindCase -Root $fixture
         $checks++
-        $report = switch ($kindCase) { Java { $reportPaths[0] }; Unit { $reportPaths[4] }; Browser { $reportPaths[5] } }
+        $report = switch ($kindCase) { Java { $reportPaths[0] }; Unit { $reportPaths[4] }; Browser { $reportPaths[5] }; Load { $reportPaths[6] } }
         $good = Suite-Xml $report[1]
         foreach ($outcome in @('failure', 'error', 'skipped')) {
             Set-FixtureFile $report[0] (Suite-Xml $report[1] $outcome)

@@ -7,12 +7,24 @@ import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 
 const root = resolve(import.meta.dirname, '../..')
-function docker(args: string[]) {
-  try { return execFileSync('docker', args, { encoding: 'utf8', timeout: 180_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
+function runDocker(args: string[], timeout = 180_000) {
+  try { return execFileSync('docker', args, { encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
   catch { throw new Error(`Docker ${args[0]} failed; check the daemon and required images. Command arguments are redacted.`) }
 }
 
 export default async function setup() {
+  return (await startFixture()).cleanup
+}
+
+// Shared disposable infrastructure only; load runs preserve production rate/auth defaults.
+export async function startFixture(load = false, signal?: AbortSignal, deadline = Infinity) {
+  let cleaning = false
+  function docker(args: string[]) {
+    if (!cleaning) signal?.throwIfAborted()
+    const remaining = cleaning ? 180_000 : Math.min(180_000, deadline - Date.now())
+    if (remaining <= 0) throw new Error('Test fixture deadline exceeded')
+    return runDocker(args, remaining)
+  }
   docker(['info', '--format', '{{.ServerVersion}}']) // Required, never skip missing Docker.
   const target = resolve(root, 'backend/target')
   const jar = existsSync(target) && readdirSync(target).find(name => name.endsWith('.jar'))
@@ -21,7 +33,7 @@ export default async function setup() {
   const workerJar = existsSync(workerTarget) && readdirSync(workerTarget).find(name => name.endsWith('.jar'))
   if (!workerJar) throw new Error('Build the worker jar before browser tests.')
   // Refuse to accidentally use a pre-existing developer API on the test port.
-  for (const port of [18080, 18081]) {
+  for (const port of load ? [18080, 18081, 18082, 18083] : [18080, 18081]) {
     await new Promise<void>((done, reject) => {
       const probe = createServer()
       probe.once('error', reject)
@@ -34,10 +46,13 @@ export default async function setup() {
   const namespace = `e2e-${suffix}`
   const workspace = realpathSync(mkdtempSync(resolve(tmpdir(), 'pairforge-e2e-')))
   const names: string[] = []
+  const inherited = load ? Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    !/^(PAIRFORGE_|SPRING_|DATABASE_|REDIS_|RABBITMQ_|JWT_|POSTGRES_|API_|WORKER_|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS)/.test(key))) : process.env
   let api: ChildProcess | undefined
   let worker: ChildProcess | undefined
   let launchError = false
   async function cleanup() {
+    cleaning = true
     const failures: string[] = []
     for (const child of [worker, api]) {
       if (!child || child.exitCode !== null) continue
@@ -88,20 +103,21 @@ export default async function setup() {
     }
     api = spawn('java', ['-jar', resolve(target, jar)], {
       cwd: root, windowsHide: true, stdio: 'ignore',
-      env: { ...process.env, SPRING_PROFILES_ACTIVE: '', API_PORT: '18080',
+      env: { ...inherited, SPRING_PROFILES_ACTIVE: load ? 'observability' : '', API_PORT: '18080', API_MANAGEMENT_PORT: '18082',
         DATABASE_URL: `jdbc:postgresql://127.0.0.1:${pg}/pairforge`, DATABASE_USER: 'pairforge', DATABASE_PASSWORD: password,
         REDIS_HOST: '127.0.0.1', REDIS_PORT: redis, RABBITMQ_HOST: '127.0.0.1', RABBITMQ_PORT: rabbit,
         RABBITMQ_USER: 'pairforge', RABBITMQ_PASSWORD: password, JWT_KEY_HEX: randomBytes(32).toString('hex'),
-        PAIRFORGE_AUTH_ALLOWEDORIGINS: 'http://127.0.0.1:15173', PAIRFORGE_AUTH_BCRYPTCOST: '4',
-        PAIRFORGE_AUTH_REGISTRATIONIPLIMIT: '100', PAIRFORGE_AUTH_LOGINIPLIMIT: '100',
+        PAIRFORGE_AUTH_ALLOWEDORIGINS: 'http://127.0.0.1:15173',
+        ...(load ? {} : { PAIRFORGE_AUTH_BCRYPTCOST: '4', PAIRFORGE_AUTH_REGISTRATIONIPLIMIT: '100', PAIRFORGE_AUTH_LOGINIPLIMIT: '100' }),
       },
     })
     api.on('error', () => { launchError = true })
     const readyDeadline = Date.now() + 90_000
     while (true) {
+      signal?.throwIfAborted()
       if (launchError || api.exitCode !== null) throw new Error('Test API failed to start')
       try {
-        const health = await fetch('http://127.0.0.1:18080/actuator/health/readiness', { signal: AbortSignal.timeout(2000) })
+        const health = await fetch(`http://127.0.0.1:${load ? 18082 : 18080}/actuator/health/readiness`, { signal: AbortSignal.timeout(2000) })
         if (health.ok) break
       } catch { /* Startup connection failures are retried until the bounded deadline. */ }
       if (Date.now() > readyDeadline) throw new Error('Test API readiness timed out')
@@ -114,7 +130,7 @@ export default async function setup() {
     const pythonImage = docker(['image', 'inspect', '--format', '{{.Id}}', 'pairforge-sandbox-python:m10'])
     worker = spawn('java', ['-jar', resolve(workerTarget, workerJar)], {
       cwd: root, windowsHide: true, stdio: 'ignore',
-      env: { ...process.env, JWT_KEY_HEX: '', POSTGRES_PASSWORD: '', SPRING_PROFILES_ACTIVE: 'sandbox', WORKER_PORT: '18081',
+      env: { ...inherited, JWT_KEY_HEX: '', POSTGRES_PASSWORD: '', SPRING_PROFILES_ACTIVE: load ? 'sandbox,observability' : 'sandbox', WORKER_PORT: '18081', WORKER_MANAGEMENT_PORT: '18083',
         DATABASE_URL: `jdbc:postgresql://127.0.0.1:${pg}/pairforge`, DATABASE_USER: 'pairforge_worker_e2e', DATABASE_PASSWORD: workerPassword,
         RABBITMQ_HOST: '127.0.0.1', RABBITMQ_PORT: rabbit, RABBITMQ_USER: 'pairforge', RABBITMQ_PASSWORD: password,
         PAIRFORGE_WORKER_PREVIOUS_WORKER_STOPPED: 'true', PAIRFORGE_SANDBOX_NAMESPACE: namespace,
@@ -124,14 +140,21 @@ export default async function setup() {
     worker.on('error', () => { launchError = true })
     const workerDeadline = Date.now() + 60000
     while (true) {
+      signal?.throwIfAborted()
       if (launchError || worker.exitCode !== null) throw new Error('Test sandbox worker failed to start')
       try {
-        if ((await fetch('http://127.0.0.1:18081/actuator/health/readiness', { signal: AbortSignal.timeout(2000) })).ok) break
+        if ((await fetch(`http://127.0.0.1:${load ? 18083 : 18081}/actuator/health/readiness`, { signal: AbortSignal.timeout(2000) })).ok) break
       } catch { /* Bounded startup only. */ }
       if (Date.now() > workerDeadline) throw new Error('Test worker readiness timed out')
       await new Promise(done => setTimeout(done, 500))
     }
-    return cleanup
+    return {
+      cleanup, names: [...names], namespace, workspace,
+      images: { java: javaImage, python: pythonImage },
+      timings: () => JSON.parse(docker(['exec', names[0], 'psql', '-U', 'pairforge', '-d', 'pairforge', '-Atc',
+        "SELECT COALESCE(json_agg(t),'[]'::json) FROM (SELECT id, status, EXTRACT(EPOCH FROM (started_at-created_at))*1000 AS queue_ms, duration_ms FROM executions ORDER BY created_at) t"])) as { id: string; status: string; queue_ms: number | null; duration_ms: number | null }[],
+      queue: () => docker(['exec', names[2], 'rabbitmqctl', '-q', 'list_queues', 'name', 'messages_ready', 'messages_unacknowledged']),
+    }
   } catch (error) {
     await cleanup()
     throw error
