@@ -11,6 +11,14 @@ function Read-Environment($Name) {
     return $result
 }
 try {
+    # Production provisioning must reference SQL shipped in the repository release.
+    $repository=Split-Path $PSScriptRoot -Parent
+    foreach($helper in @('provision-app.sh','provision-worker-production.sh')) {
+        $source=Get-Content -LiteralPath (Join-Path $repository "infra/deploy/$helper") -Raw
+        $inputSql=[regex]::Match($source, '< /opt/pairforge/current/([^\s]+\.sql)')
+        Require $inputSql.Success "Missing SQL input in $helper"
+        Require (Test-Path -LiteralPath (Join-Path $repository $inputSql.Groups[1].Value) -PathType Leaf) "Release SQL input missing for $helper"
+    }
     & "$PSScriptRoot/new-deployment-config.ps1" -Directory $directory -PublicHost d123.example.cloudfront.net -DataPrivateIp 10.42.1.10
     $api=Read-Environment 'api.env'; $worker=Read-Environment 'worker.env'; $caddy=Read-Environment 'caddy.env'
     $secrets=@($api.DATABASE_PASSWORD,$api.MIGRATION_PASSWORD,$api.RABBITMQ_PASSWORD,$api.JWT_KEY_HEX,$worker.DATABASE_PASSWORD,$worker.RABBITMQ_PASSWORD,$caddy.ORIGIN_TOKEN,(Get-Content -LiteralPath (Join-Path $directory 'postgres-password') -Raw))

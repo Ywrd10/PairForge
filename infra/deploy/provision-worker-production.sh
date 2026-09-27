@@ -19,5 +19,5 @@ set +a
 compose=(docker compose --env-file /etc/pairforge/infra.env -f /opt/pairforge/current/infra/deploy/compose.yaml)
 "${compose[@]}" exec -T -e WORKER_DB_USER -e WORKER_DB_PASSWORD postgres \
     psql -v ON_ERROR_STOP=1 -U pairforge_bootstrap -d pairforge \
-    < /opt/pairforge/current/infra/deploy/provision-worker.sql
+    < /opt/pairforge/current/scripts/provision-worker.sql
 unset WORKER_DB_USER WORKER_DB_PASSWORD

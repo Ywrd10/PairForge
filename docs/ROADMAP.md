@@ -1660,6 +1660,13 @@ sampled capacity, prior test results and limitations. CPU-credit metrics were
 unavailable to the deployer; no sustained-load or continuous peak measurement is
 claimed. Milestone 16 remains TODO.
 
+Post-completion review (2026-09-27): corrected the worker-role helper's missing
+SQL-file reference and added a release-artifact regression check. Frontend's
+70 tests/checks/build, nine focused Java production tests, Maven packaging,
+configuration/identity/syntax checks and read-only AWS checks pass. Docker-based
+fixture reruns are currently environment-blocked; previous deployed acceptance
+remains the completion evidence. See `docs/DEPLOYMENT.md` for exact limitations.
+
 ---
 
 ## Milestone 16 — Load Testing

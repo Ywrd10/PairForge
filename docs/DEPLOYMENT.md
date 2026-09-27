@@ -273,7 +273,7 @@ format pg_dump, decrypts it and restores into a new database. It verifies the
 restored row and removes its disposable resources. This proves the local dump
 and cryptographic path, not S3 availability or deployed application restoration.
 
-## Acceptance evidence still required
+## Acceptance verification checklist
 
 - Actual resource IDs, generated HTTPS URL, budget and alert configuration.
 - Non-root deployment identity and effective permissions.
@@ -287,6 +287,57 @@ and cryptographic path, not S3 availability or deployed application restoration.
 - Complete local tests/builds and deployed checks with no unresolved failures.
 
 Do not invent the second tester, account IDs, observed capacity or passing tests.
+
+## Post-completion review — 2026-09-27
+
+The milestone's deployed acceptance is retained from the real two-person test,
+durable execution evidence and successful backup/restore/shutdown record above.
+This review did not restart the hosts or repeat human browser acceptance.
+Read-only AWS checks reconfirmed the exact two hosts stopped with no public IPs,
+worker metadata disabled/no instance role, CloudFront deployed/HTTPS-only with
+caching disabled and the intended VPC origin, expected security-group-only
+ingress, no app internet default route or remaining Elastic IP, private S3
+public-access protections, seven-day retention, encrypted final backup metadata,
+and the $50 monthly budget with 50/80/100% actual-cost notifications.
+
+One reproducibility defect was fixed: `provision-worker-production.sh` referenced
+an absent `infra/deploy/provision-worker.sql`. It now reads the existing shipped
+`scripts/provision-worker.sql`. The configuration check verifies both production
+provisioning helpers reference SQL included in the repository release. That check
+and Bash syntax validation pass. This changes a one-time setup helper, not live
+roles or application behavior; it has not been reapplied to stopped hosts.
+
+Checks rerun successfully:
+
+- frontend lint/typecheck, all 70 unit tests and production build;
+- nine focused Java tests for execution access and API/worker production
+  configuration, zero failures/errors/skips;
+- Maven packaging of both runnable applications (tests deliberately excluded
+  from the packaging-only command, separate from the nine executed tests);
+- configuration/credential isolation and provisioning-asset checks, three
+  identity rejection checks, six administration readiness checks, all PowerShell
+  syntax checks and corrected helper Bash syntax;
+- Git whitespace validation and read-only AWS checks listed above.
+
+Current rerun blockers: Docker Desktop's Linux engine pipe is absent.
+`test-production-admission.ps1`, `test-production-worker-start.ps1` and
+`test-deployment-storage.ps1` were attempted and exited nonzero before executing
+their fixtures. DeploymentIT, the broader Testcontainers suite and Playwright
+with real local dependencies were not rerun for the same prerequisite failure.
+These are environment-blocked checks, not passing or silently skipped tests.
+Earlier 365-test Java verification and actual deployed acceptance remain separate
+historical evidence. No flaky test was observed in the tests executed this review.
+The existing Monaco bundle warning remains. CPU credits, budget email delivery,
+full restored-API HTTP login and sustained/peak load are not newly verified.
+
+No architectural drift or future-milestone functionality was found. The modular
+monolith/one worker boundary remains, code execution is confined to the dedicated
+worker's disposable containers, authorization precedes persistence/publication,
+and secrets are kept out of submissions and source control. The manual admission
+gate/schedule, approved private HTTP origin hop, non-perfect Docker isolation,
+ephemeral editor state and dual-write gaps remain explicit operating limitations.
+Milestone 15 remains DONE based on deployed acceptance; this review does not
+claim a fresh passing full local integration suite. Milestone 16 remains TODO.
 
 ## Manual startup, shutdown, and recovery
 

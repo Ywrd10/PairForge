@@ -1728,7 +1728,7 @@ origin. The generated CloudFront hostname provides browser HTTPS/WSS; the privat
 CloudFront-to-Caddy hop is explicitly approved HTTP, not end-to-end TLS. Worker
 database and broker connections still verify TLS certificates and hostnames.
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the cost envelope, network and IAM
-boundaries, tester allowlist, shutdown/backup contract and outstanding acceptance.
+boundaries, tester allowlist, shutdown/backup contract and recorded acceptance.
 
 ---
 
