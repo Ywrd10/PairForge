@@ -12,6 +12,14 @@ export class Session {
   private revision = 0
   private controller = new AbortController()
   private listeners = new Set<() => void>()
+  // One-time room invitations live only in this authenticated browser session.
+  private roomInvitations = new Map<string, string>()
+  rememberRoomInvitation(roomId: string, invitationToken: string) {
+    this.checkExpiry()
+    if (!this.state.user) throw new ApiError('Please log in again.', 401)
+    this.roomInvitations.set(roomId, invitationToken)
+  }
+  roomInvitation(roomId: string) { return this.roomInvitations.get(roomId) }
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -24,6 +32,7 @@ export class Session {
     this.controller = new AbortController()
     this.token = ''
     this.expiresAt = 0
+    this.roomInvitations.clear()
     this.state = { user: null, expired }
     this.emit()
   }

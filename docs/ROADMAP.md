@@ -9,9 +9,9 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 14 (DONE). CI hardening passes local checks,
-intentional failure-propagation acceptance and final remote verification.
-Milestone 15 remains TODO and requires a separate implementation request.
+Current milestone: Milestone 15 (DONE). Deployed two-person acceptance,
+restricted execution, measured demo capacity, backup/restore and verified clean
+shutdown are recorded. Milestone 16 remains TODO and requires a separate request.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1623,7 +1623,7 @@ Milestone 15 remains TODO; no deployment work was introduced.
 
 ## Milestone 15 — Deployment
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1645,6 +1645,20 @@ Acceptance test:
 
 At least two invited testers can complete the full PairForge workflow using the deployed
 application.
+
+Verified 2026-09-27 on the existing approved AWS two-host deployment. The owner
+confirmed the teammate independently authenticated, joined by invitation, edited
+in both directions and received Java/Python results automatically. Database
+evidence verifies successful runs by both approved UUIDs, compilation/runtime
+errors, timeout/recovery and overlapping accepted requests processed serially by
+the worker. Reload restoration and pre-allowlist rejection were owner-reported.
+The fresh encrypted S3 backup restored all 18 executions and application-role
+reads passed; temporary restore resources were removed. Admission closed, work
+drained, services stopped and both EC2 hosts were independently verified stopped.
+See `docs/MILESTONE_15_ACCEPTANCE.md` and `docs/DEPLOYMENT.md` for exact evidence,
+sampled capacity, prior test results and limitations. CPU-credit metrics were
+unavailable to the deployer; no sustained-load or continuous peak measurement is
+claimed. Milestone 16 remains TODO.
 
 ---
 

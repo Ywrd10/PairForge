@@ -11,6 +11,22 @@ async function authenticate(session: Session, id = user.id) {
   await session.login(user.email, 'test password long enough', new AbortController().signal)
 }
 describe('session ownership', () => {
+  it.each(['logout', 'expiry'] as const)('clears in-memory room invitations on %s and never transfers them to another login', async reason => {
+    const session = new Session()
+    await authenticate(session)
+    session.rememberRoomInvitation('room-1', 'private-invitation')
+    expect(session.roomInvitation('room-1')).toBe('private-invitation')
+    expect(new Session().roomInvitation('room-1')).toBeUndefined()
+    if (reason === 'expiry') {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 901_000)
+      session.checkExpiry()
+      clock.mockRestore()
+    } else session.logout()
+    expect(session.roomInvitation('room-1')).toBeUndefined()
+    expect(() => session.rememberRoomInvitation('room-1', 'late-invitation')).toThrow('Please log in again.')
+    await authenticate(session, 'user-2')
+    expect(session.roomInvitation('room-1')).toBeUndefined()
+  })
   it('confirms the user via /me and exposes no token in the UI snapshot', async () => {
     const session = new Session()
     await authenticate(session)

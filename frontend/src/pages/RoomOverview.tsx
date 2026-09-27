@@ -6,9 +6,10 @@ import { useSession } from '../auth/context'
 import { RequestError } from '../components/RequestError'
 import { ApiError } from '../api/client'
 import { RoomWorkspace } from '../editor/RoomWorkspace'
+import { RoomInvitation } from '../components/RoomInvitation'
 
 function RoomDetails({ id }: { id: string }) {
-  const { session } = useSession()
+  const { session, user } = useSession()
   const [room, setRoom] = useState<Room | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [refresh, setRefresh] = useState(0)
@@ -36,6 +37,11 @@ function RoomDetails({ id }: { id: string }) {
       <dl><dt>Room ID</dt><dd>{room.id}</dd>
         <dt>Default language</dt><dd>{room.language === 'JAVA' ? 'Java' : 'Python'}</dd>
         <dt>Created</dt><dd>{new Date(room.createdAt).toLocaleString()}</dd></dl>
+      {room.ownerId === user?.id && (session.roomInvitation(room.id)
+        ? <RoomInvitation roomId={room.id} token={session.roomInvitation(room.id)!} />
+        : <p role="note">To invite a teammate, share the room ID and invitation token you saved when creating this room.
+          The token cannot be recovered after reload or logout. If you did not save it,
+          create a new room from the dashboard and choose “Copy invitation” before leaving.</p>)}
     </section>}
     {room && <RoomWorkspace roomId={room.id} defaultLanguage={room.language} />}
   </>

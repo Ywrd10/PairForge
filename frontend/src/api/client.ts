@@ -29,7 +29,10 @@ export function expectResponse<T>(value: unknown, matches: (value: unknown) => v
   return value
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080').replace(/\/$/, '')
+// Production serves API and WebSockets through the same HTTPS origin as the UI.
+// The loopback default is only for the separate local Vite development server.
+const baseUrl = (import.meta.env.VITE_API_BASE_URL
+  || (import.meta.env.PROD ? window.location.origin : 'http://127.0.0.1:8080')).replace(/\/$/, '')
 export function collaborationUrl() {
   const url = new URL(`${baseUrl}/ws`)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'

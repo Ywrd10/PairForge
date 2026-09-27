@@ -414,7 +414,8 @@ no schema migration or API/worker module coupling is added for authentication.
   protected requests. Authenticated 401s clear the current session. Session changes
   abort pending requests and reject stale responses, so old data or late login
   results cannot restore a logged-out account or overwrite another login.
-- The typed fetch client uses a fixed public `VITE_API_BASE_URL`, explicit bearer
+- The typed fetch client uses the page origin in production (or an explicit
+  public `VITE_API_BASE_URL` override), explicit bearer
   headers, omitted cookies, no-store requests, refused redirects, a 15-second
   timeout, and cancellation. It displays safe API field errors, request IDs, and
   Retry-After information. POSTs have no automatic retry; forms prevent duplicate
@@ -423,9 +424,14 @@ no schema migration or API/worker module coupling is added for authentication.
   UI state; malformed data produces a safe error instead of a broken page or
   invitation. Local validation failures do not imply that a write was dispatched.
 - Dashboard room lists use the existing 20-item pagination contract. Create returns
-  a one-time invitation display with copy and manual-copy fallback. The owner must
-  save the room ID/token before navigating away; the frontend neither stores the
-  token durably nor encodes it in a share URL. Join sends it only in the JSON body.
+  a one-time invitation with copy and manual-copy fallback. Newly created tokens
+  remain in authenticated session memory so the owner can also copy them from
+  the room page. Reload, logout or expiry clears them; the owner must save the
+  invitation before then. The frontend neither stores tokens durably nor encodes
+  them in share URLs, and the server cannot recover their hashes. Older rooms
+  explain the saved-token requirement and creating a new room if it was lost.
+  Join uses non-password text fields with autocomplete disabled and sends the
+  invitation only in the JSON body.
   An uncertain create displays the duplicate-room/unrecoverable-invitation warning.
 - UI route guards control navigation; the API remains the authorization authority.
   Post-login destinations are restricted to known internal routes. React renders

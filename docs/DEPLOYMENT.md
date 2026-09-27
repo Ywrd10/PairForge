@@ -1,10 +1,84 @@
 # Milestone 15 deployment
 
-This is the approved deployment contract and an incomplete implementation.
-Milestone 15 remains TODO until actual AWS deployment, recovery, security,
-capacity, and two-human acceptance checks pass. Local proxy fixtures are not
-evidence that a CloudFront distribution has been deployed. No Milestone 16 load
-testing is included.
+Milestone 15 is complete as of 2026-09-27. The approved deployment was verified
+with two authenticated people, restricted execution, recovery, backups and clean
+shutdown. Both hosts are stopped; start them using the procedure below for a
+supervised demo. The dated checkpoints later in this file are historical records,
+not the current status. No Milestone 16 load testing is included.
+
+## Final deployed acceptance — 2026-09-27
+
+Live demo URL while hosts are operating:
+[PairForge](https://d3pq3na8h2es74.cloudfront.net).
+The owner confirmed their teammate independently authenticated and joined using
+the invitation, both people edited in both directions and Java/Python results
+arrived without Refresh Status. Both accounts were registered, and reload
+restoration was verified by the owner. The backend allowlist remained exactly
+`04ad007f-63ea-43fb-8d29-7cfaa9b089f1` and
+`24ed65b0-9559-46d5-a2e2-0cbeec72b3b4`; the owner verified rejection of the
+second account before approval. No third account or public execution was enabled.
+
+Java/Python success, Java compilation failure, Python runtime failure, timeout
+and immediate recovery are confirmed by persisted results and reported browser
+observations. The final pair of Python requests were created at 21:06:02.861743
+and 21:06:04.876143 UTC. The second queued while the first was active, then ran
+after it completed. Both succeeded (2645 / 2634 ms, exit 0). This verifies two
+outstanding requests and the single worker's serial processing, not two
+simultaneous sandboxes. Exact IDs and evidence are in
+[MILESTONE_15_ACCEPTANCE.md](MILESTONE_15_ACCEPTANCE.md).
+
+Capacity observations on the approved t3a.medium / t3a.small:
+
+| Observation | App | Worker |
+| --- | --- | --- |
+| Minimum sampled available RAM, 20:50–21:05 UTC | 2580.1 MiB | 1211.4 MiB |
+| Minimum sampled CPU idle in that window | 25% | 82% |
+| Free root disk | 24 GiB | 15 GiB |
+| Service restarts in the window | 0 | 0 |
+
+Earlier execution samples measured Java at 36.18 MiB / 512 MiB, 14 / 128 PIDs,
+and a non-terminating Python program at 3.828 MiB / 128 MiB, 2 / 32 PIDs,
+each using approximately one CPU under a one-CPU limit. A successful Python
+sample used 3.812 MiB / 128 MiB. Required inspected sandbox controls were present.
+All post-case readiness checks passed, queues drained and no sandbox leaked.
+No capacity problem required an upgrade for this demo. These are samples, not
+peaks: the bounded 20:50–21:05 sampler ended before the final 21:06 request pair.
+That pair has durable timing and post-case health evidence, not continuous CPU
+or per-container samples. CloudWatch CPUCreditBalance reads were denied to the
+deployer; permissions were not broadened. Sustained capacity remains untested.
+
+Final pre-shutdown backup:
+`postgres/2026-09-27/210912-505f616b38a04a52908c4458ff19283e.dump.cms`,
+16,310 bytes, S3 AES256, SHA256
+`a16c5838eb63dd94bb5e060bbb254a62232f5e6b5af38073ccd01bf835c3f03d`.
+Downloaded ciphertext matched metadata/checksum; offline decryption kept the
+private key local. An isolated database restore passed with 1 migration,
+2 users, 2 rooms, 3 memberships and 18 executions. Application-role table and
+owner-room relationship reads passed. This is database/application-role recovery,
+not a separately authenticated restored-API HTTP login. Temporary database and
+both plaintext dumps were removed and cleanup verified. The encrypted local
+recovery copy is retained in the owner-protected ignored deployment directory,
+including for downtime beyond S3's seven-day retention.
+
+Clean shutdown passed: admission closed, zero QUEUED/RUNNING rows, both queues
+empty, worker stopped, fresh backup verified, app/dependency services stopped,
+then both exact hosts reached stopped state. Independent EC2 reads confirmed
+no public IPs, no PairForge Elastic IP allocations and no app internet default
+route. Encrypted EBS volumes, backup objects and CloudFront configuration remain.
+Retained storage is estimated at $4.25/month plus requests/traffic; this is not
+an actual bill. The approved operating estimate is $21.70/month for 250 host
+hours each. Budget alerts are configured, not a spending cap. Use the documented
+manual schedule and startup/shutdown; no 24/7 availability is claimed.
+
+Changed frontend checks previously passed: lint, typecheck, 70 unit tests,
+production build and deployed origin/invitation/autofill checks. Earlier Java
+verification passed 365 tests. The attempted broader local browser rerun was
+blocked by Docker Desktop availability and is not represented as a pass; changed
+browser flows were subsequently checked against the deployed assets and real
+two-person workflow. Acceptance recording introduced no new application code,
+so unrelated heavy suites were not repeated. The Monaco chunk-size warning and
+documented Docker/dual-write/editor-state limitations remain. No new AWS resources
+or resize was introduced during final acceptance.
 
 ## Approved environment and cost envelope
 
@@ -268,6 +342,201 @@ isolated PostgreSQL database, check migration history and application table
 reads, then reapply runtime and worker grants before reconnecting an API. Do
 not place the private keys on AWS, overwrite the live database, or run Flyway
 clean. Remove the plaintext dump after the check.
+
+## Approved allowlist and restore checkpoint (2026-09-26)
+
+Browser sign-in renewed profile `pairforge` and STS again verified the dedicated
+non-root deployer in account `298984481596`, region `us-east-1`. The allowlist
+was changed from the owner alone to exactly both explicitly approved UUIDs.
+The API restarted and readiness returned UP; worker readiness was UP. The
+root-owned 0644 admission marker was opened through the documented helper.
+Only those two accounts may execute; public execution remains denied.
+
+The owner confirmed the previously unapproved second account was rejected.
+They are currently operating both accounts themselves; a second person has
+not performed the final acceptance. Their later checklist report retained
+PASS/FAIL/output placeholders, and the actual database still had zero executions
+with empty job/event queues at the correlation check. Execution and delivery
+cases must remain pending until actual submissions and browser outcomes exist.
+
+Bounded fifteen-minute resource sampling started on both existing hosts without
+new infrastructure or resizing. Current samples have no execution workload:
+approximately 2.6 GiB available app RAM / 1.2 GiB worker RAM, zero service
+restarts, and 24/15 GiB free root disk. These are baseline observations, not proof
+of two-user execution capacity. Sampling output contains only resource/health
+data and selected sandbox controls, never environment secrets or submitted source.
+
+The encrypted backup at `postgres/2026-09-26/164547-*` is 14,602 bytes. S3 reports
+AES256 encryption and SHA256 `8ac24ac69f46e48d23ade1fc358478d62446b919760bbc08b479e3f5685dd129`,
+matching the downloaded ciphertext. Decryption used the offline key, which was
+not transferred to AWS. Local Docker was unavailable; instead, restoration used
+an isolated temporary database on the existing app host. `pg_restore` succeeded,
+yielding one migration, two users, two rooms and three memberships. Restored
+API-role table and owner-room relationship reads passed. This is application-role
+data access, not a full restored-API HTTP login test. The temporary database and
+remote/local plaintext dumps were removed and independently checked; production
+readiness remained UP. Retained ciphertext is owner-protected. A final fresh
+backup before shutdown is still required.
+
+Follow-up at 2026-09-27 01:01 UTC: real Java execution
+`a0cab0e0-4fd5-4efd-b3b4-35aea9122b21` succeeded with exit 0, stdout
+`PairForge Java OK`, empty stderr and duration 4234 ms. The owner reports the
+result appeared in both accounts; the database independently confirms it.
+A running-container sample recorded 36.18 MiB against the 512 MiB Java limit,
+14 processes against 128 and approximately one CPU in use. Required sampled
+sandbox controls were present, worker service restarts remained zero, readiness
+was UP after completion, queues drained and the sandbox was removed. This is
+sampled evidence for one successful Java case, not peak or sustained capacity.
+See [MILESTONE_15_ACCEPTANCE.md](MILESTONE_15_ACCEPTANCE.md) for remaining cases.
+
+Milestone 15 remains TODO. Python execution/error/timeout/recovery results,
+browser delivery/reload observations, a second human, workload capacity and final
+clean shutdown/stopped-host verification remain outstanding. No final acceptance
+commit has been made and no Milestone 16 work was introduced.
+
+## Two-account collaboration and owner approval (2026-09-25)
+
+Follow-up: the owner confirmed the second account's non-allowlisted execution
+rejection and explicitly approved its UUID. The attempt to apply that approval
+stopped at the expired AWS CLI session's STS identity check, before any remote
+mutation. Browser reauthentication is pending. The intended final allowlist is
+exactly the two approved accounts; the deployed configuration still contains
+only the first account and admission remains closed at this checkpoint.
+
+The owner reports that both accounts independently registered/authenticated,
+joined one room and synchronized code edits in both directions. A read-only
+database check confirms exactly two registered accounts and one room with both
+members. This is user-reported collaboration evidence plus database membership;
+the second account's operator still needs confirmation for the two-person test.
+
+After explicit approval, only the owner's UUID was added to the private API
+allowlist. The API was restarted and readiness returned UP. The second account
+was identified from the recent registration and its UUID reported for separate
+approval; it has not been allowlisted. The execution admission marker remains
+absent, executions count is zero, and both RabbitMQ execution queues report zero
+ready and unacknowledged messages. No other accounts or public execution were
+authorized. Account emails/UUIDs and credentials are not recorded here.
+
+The remaining supervised cases and sample programs are in
+[MILESTONE_15_ACCEPTANCE.md](MILESTONE_15_ACCEPTANCE.md). They cover reconnect,
+Java/Python success, compilation/runtime errors, timeout/recovery, both browsers'
+live results, backend denial, and measurements during the expected workload.
+Use the existing second account for the denial check before approving it, if
+practical. Remaining execution, capacity, restored-data and final shutdown checks
+are pending. Milestone 15 stays TODO; no infrastructure was added or resized.
+
+## Owner registration and invitation readiness (2026-09-25)
+
+The owner reports successful deployed registration/login, dashboard access,
+room creation and opening Monaco. A read-only lookup by the supplied email
+identified their real account UUID; no password hashes were queried. Execution
+allowlist and admission were verified empty/closed and remain unchanged pending
+explicit approval. Personal account identifiers are not recorded in this runbook.
+
+The join form and both admission inputs now disable autocomplete and use named
+text fields, with capitalization/spellcheck disabled. Removing the password
+input avoids presenting a username/password pair to browser credential managers.
+The HTML configuration and initially empty fields are testable; individual
+third-party password-manager overrides are not a universal browser guarantee.
+
+After creating a new room, the owner can select **Copy invitation** on the
+dashboard or the room page to copy its room ID and token. This newly issued
+token stays only in the authenticated tab's memory; reload, logout or expiry
+clears it. Share the copied fields privately with the teammate, who independently
+registers/logs in and uses **Have an invitation?** on the dashboard. No token is
+placed in a URL, browser history or durable browser storage. Previously created
+rooms whose token was not saved show recovery guidance: use the saved token or
+create a new room and save its invitation. No token rotation/retrieval API was
+added; the server continues to store only a hash.
+
+The static update is deployed. Frontend lint, typecheck, all **70 unit tests**,
+production build and whitespace checks pass. Tests cover copying after room
+navigation, clipboard-failure fallback, join-body submission, and invitation
+clearing on logout/expiry/new sessions. An initial new test had a mock-response
+ordering issue; waiting for the initial room list corrected that test setup.
+A browser check of deployed assets (all auth/room APIs and WebSockets intercepted
+with fixture responses) verifies join-field semantics, copying in the room UI,
+and logout clearing; it does not represent a real second tester. The clipboard
+check waits for completion and normalizes Windows line endings. The real
+registration form also reaches the live HTTPS API and rejects invalid input
+with HTTP 400 without creating a synthetic account. No unrelated heavy suites
+were rerun for this frontend-only update; the previously documented local Docker
+blocker remains separate. The existing Monaco bundle-size warning remains.
+
+The second tester can register at
+`https://d3pq3na8h2es74.cloudfront.net/register`. Both testers must receive
+explicit UUID approval before execution. Milestone 15 remains TODO pending
+the two-real-account execution/collaboration workflow, capacity measurements,
+restored-data check and final clean shutdown. No Milestone 16 work was added.
+
+## Frontend registration repair (2026-09-25)
+
+The owner's first registration attempt exposed a release defect: the frontend
+bundle defaulted to `http://127.0.0.1:8080`, sending requests to the visitor's
+computer. The initial page-render/direct-API smoke test did not exercise the
+form's configured API URL and therefore missed it. That attempt could not reach
+the deployed API; it is not a successful registration or acceptance result.
+
+Production builds now default to the page origin for API requests and derive
+WSS from that HTTPS origin. Local development keeps its separate loopback API;
+an explicit `VITE_API_BASE_URL` remains available for local browser fixtures.
+The AWS release must be built without that fixture override. After browser
+tests, rebuild with the production environment before packaging `frontend/dist`:
+the browser-test build deliberately targets its local fixture API.
+
+The repaired production bundle was transferred over private authenticated SSH,
+its SHA256 verified, assets installed, and `index.html` replaced atomically.
+Static files/directories were also restricted to root ownership and 644/755
+permissions. Existing hashed assets were retained for already-open pages.
+Users with the earlier page open must reload before registration.
+
+Frontend lint, typecheck, all 67 unit tests (including two origin regressions)
+and production build passed. The new deployed smoke check submits an invalid
+email through the actual registration form: it reaches the CloudFront HTTPS
+`/api/auth/register` endpoint and receives HTTP 400 without creating an account.
+WSS again opens and rejects anonymous STOMP with code 1008. The broader
+browser-suite retry was blocked because the local Docker daemon was stopped;
+starting Docker Desktop reproduced its inaccessible `dockerInference` runtime
+socket startup error. No factory reset or Docker data deletion was performed.
+This does not constitute a passing or skipped suite. Real successful registration,
+authenticated WSS and the two-person acceptance workflow are still pending.
+
+## Registration restart checkpoint (2026-09-25, 13:53–13:56 UTC)
+
+The deployment/documentation checkpoint was committed as `42884bf` before
+restarting either host. After renewing the session, STS verified account
+`298984481596`, profile `pairforge`, region `us-east-1`, and IAM user
+`arn:aws:iam::298984481596:user/pairforge/pairforge-deployer`.
+
+- The same two approved hosts passed EC2 status checks. The app has no public
+  address or internet default route; worker IMDS remains disabled with no IAM
+  role. The existing security-group restrictions and deployed CloudFront
+  distribution were rechecked; no additional infrastructure was created.
+- PostgreSQL, Redis and RabbitMQ report healthy. API and worker readiness are
+  `UP`; live API/worker PostgreSQL and RabbitMQ connections use TLS 1.3. The
+  worker start helper passed its metadata guard and sandbox readiness checks.
+- The HTTPS registration page renders without JavaScript errors. An empty
+  registration request returns 400; no test account was created. Anonymous
+  rooms access returns 401, public management access returns 404, and the
+  private origin without its secret returns 403. WSS opens through CloudFront
+  and closes unauthenticated STOMP with policy code 1008.
+- The execution allowlist is empty and the admission marker is absent. Both
+  execution queues have zero ready/unacknowledged messages. Each real tester
+  must independently register and receive explicit owner approval for their
+  UUID before execution is enabled. Authenticated collaboration/execution is
+  still pending, not implied by the transport checks above.
+- Idle baseline: app 2747 MiB available RAM and 24 GiB free root disk; worker
+  1312 MiB available RAM and 15 GiB free root disk. A one-second CPU sample was
+  100% idle on the app and 99% idle on the worker; these short idle samples are
+  not workload-capacity evidence. Worker service memory was 382,533,632 bytes
+  with zero service restarts at the subsequent sample.
+
+Both hosts are running for the requested supervised registration/acceptance
+window at this checkpoint. The owner was given
+`https://d3pq3na8h2es74.cloudfront.net/register`; no account UUID has been
+approved. Keep Milestone 15 TODO until the real two-person workflow, workload
+measurements, restored-data read, and documented clean shutdown pass. The
+final acceptance commit remains pending. No Milestone 16 work was performed.
 
 ## Live deployment checkpoint (2026-09-25)
 

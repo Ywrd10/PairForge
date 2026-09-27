@@ -6,31 +6,7 @@ import type { CreatedRoom, Language, RoomPage } from '../api/rooms'
 import { useSession } from '../auth/context'
 import { RequestError } from '../components/RequestError'
 import { useAction } from '../components/useAction'
-
-function Invitation({ created }: { created: CreatedRoom }) {
-  const [message, setMessage] = useState('')
-  return <section className="invitation" aria-label="Room invitation">
-    <h3>Your room is ready</h3>
-    <p>Copy and save this invitation now. It cannot be retrieved after leaving this page or logging out.
-      Share it only with people you want to admit.</p>
-    <label htmlFor="created-room-id">Room ID</label>
-    <input id="created-room-id" readOnly value={created.room.id} />
-    <label htmlFor="created-token">Invitation token</label>
-    <input id="created-token" readOnly value={created.invitationToken} autoComplete="off" />
-    <div className="actions">
-      <button type="button" className="secondary" onClick={() => {
-        void (async () => {
-          try {
-            await navigator.clipboard.writeText(`Room ID: ${created.room.id}\nInvitation token: ${created.invitationToken}`)
-            setMessage('Invitation copied.')
-          } catch { setMessage('Copy was unavailable. Select and copy the fields above.') }
-        })()
-      }}>Copy invitation</button>
-      <Link to={`/rooms/${created.room.id}`}>Open room</Link>
-    </div>
-    {message && <p role="status">{message}</p>}
-  </section>
-}
+import { RoomInvitation } from '../components/RoomInvitation'
 
 function CreateRoom({ onCreated }: { onCreated: () => void }) {
   const { session } = useSession()
@@ -40,7 +16,8 @@ function CreateRoom({ onCreated }: { onCreated: () => void }) {
   const { run, error, pending } = useAction()
   return <section className="panel">
     <h2>Create a room</h2>
-    {created ? <><Invitation created={created} /><button className="secondary" type="button"
+    {created ? <><RoomInvitation roomId={created.room.id} token={created.invitationToken} />
+      <Link to={`/rooms/${created.room.id}`}>Open room</Link><button className="secondary" type="button"
       onClick={() => { setCreated(null); setName('') }}>I saved the invitation — create another room</button></> :
       <form onSubmit={event => {
         event.preventDefault()
@@ -48,6 +25,7 @@ function CreateRoom({ onCreated }: { onCreated: () => void }) {
           if (!name.trim()) throw new ApiError('Enter a room name.', 400)
           const result = await createRoom(session, name, language, signal)
           signal.throwIfAborted()
+          session.rememberRoomInvitation(result.room.id, result.invitationToken)
           setCreated(result)
           onCreated()
         })
@@ -75,7 +53,7 @@ function JoinRoom() {
   const { run, error, pending } = useAction()
   return <section className="panel">
     <h2>Have an invitation?</h2>
-    <form onSubmit={event => {
+    <form autoComplete="off" onSubmit={event => {
       event.preventDefault()
       void run(async signal => {
         const result = await joinRoom(session, id.trim(), token.trim(), signal)
@@ -85,10 +63,12 @@ function JoinRoom() {
       })
     }}>
       <label htmlFor="join-id">Room ID to join</label>
-      <input id="join-id" required pattern="[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
+      <input id="join-id" name="room-id" type="text" autoComplete="off" autoCapitalize="none" spellCheck={false}
+        required pattern="[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
         value={id} onChange={event => setId(event.target.value)} />
       <label htmlFor="join-token">Invitation token to join</label>
-      <input id="join-token" required pattern="[A-Za-z0-9_\-]{43}" autoComplete="off" type="password"
+      <input id="join-token" name="room-invitation" required pattern="[A-Za-z0-9_\-]{43}" autoComplete="off"
+        type="text" autoCapitalize="none" spellCheck={false}
         value={token} onChange={event => setToken(event.target.value)} />
       <RequestError error={error} />
       <button disabled={pending}>{pending ? 'Joining…' : 'Join room'}</button>
