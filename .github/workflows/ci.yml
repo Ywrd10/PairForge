@@ -42,6 +42,7 @@ jobs:
           ./scripts/test-production-admission.ps1
           ./scripts/test-production-worker-start.ps1
           ./scripts/test-deployment-storage.ps1
+          ./scripts/test-deployment-storage.ps1 -TestPkiFailureCleanup
       - name: Build and run real-container tests
         run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
       - name: Validate required Java suites and produce sanitized diagnostics

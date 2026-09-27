@@ -1,4 +1,5 @@
 #Requires -Version 7.4
+param([switch]$TestPkiFailureCleanup)
 # Local disposable PostgreSQL fixture. No AWS calls or application credentials.
 $ErrorActionPreference='Stop'
 $repository=Split-Path $PSScriptRoot -Parent
@@ -14,8 +15,28 @@ function Docker([string[]]$Arguments) {
     return $output
 }
 $script:dockerExecutable=(Get-Command docker -CommandType Application | Select-Object -First 1).Source
+$runtimeUser=@()
+if($IsLinux) {
+    $fixtureUid=(& id -u).Trim()
+    if($LASTEXITCODE -ne 0) { throw 'Cannot determine fixture UID' }
+    $fixtureGid=(& id -g).Trim()
+    if($LASTEXITCODE -ne 0) { throw 'Cannot determine fixture GID' }
+    if($fixtureUid -notmatch '^\d+$' -or $fixtureGid -notmatch '^\d+$') { throw 'Invalid fixture identity' }
+    # Bind-mounted private material must belong to the runner, not container root.
+    $runtimeUser=@('--user',"${fixtureUid}:${fixtureGid}")
+    [IO.File]::SetUnixFileMode($directory,[IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+}
 try {
-    [void](Docker @('run','--rm','--network','none','--mount',"type=bind,source=$PSScriptRoot,target=/scripts,readonly",'--mount',"type=bind,source=$directory,target=/fixture",$runtimeImage,'pwsh','-NoProfile','-File','/scripts/new-deployment-pki.ps1','-Directory','/fixture/pki'))
+    [void](Docker (@('run','--rm','--network','none')+$runtimeUser+@('--mount',"type=bind,source=$PSScriptRoot,target=/scripts,readonly",'--mount',"type=bind,source=$directory,target=/fixture",$runtimeImage,'pwsh','-NoProfile','-File','/scripts/new-deployment-pki.ps1','-Directory','/fixture/pki')))
+    if($IsLinux) {
+        foreach($path in @($directory,"$directory/pki") + @(Get-ChildItem -LiteralPath "$directory/pki" -Recurse -Filter '*.key' | ForEach-Object FullName)) {
+            $expectedMode=if([IO.Directory]::Exists($path)) {'700'} else {'600'}
+            $actual=& stat -c '%u:%g:%a' -- $path
+            if($LASTEXITCODE -ne 0 -or $actual.Trim() -ne "${fixtureUid}:${fixtureGid}:$expectedMode") { throw 'Fixture ownership or private permissions changed' }
+        }
+        Write-Host 'PASS runner-owned fixture/PKI directories (0700) and private keys (0600).'
+    }
+    if($TestPkiFailureCleanup) { throw 'Injected failure after PKI generation' }
     [void](Docker @('network','create',$id)); $networkCreated=$true
     $command='chown postgres:postgres /tls/server.key; chmod 600 /tls/server.key; exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key'
     [void](Docker @('create','--name',$id,'--network',$id,'--network-alias','db.pairforge.internal','-e',"POSTGRES_PASSWORD=$bootstrap",'-e','POSTGRES_USER=pairforge_bootstrap','-e','POSTGRES_DB=pairforge','--entrypoint','bash','postgres:17.11-bookworm','-c',$command)); $containerCreated=$true
@@ -42,7 +63,7 @@ try {
     & $script:dockerExecutable exec $id pg_dump -U pairforge_bootstrap -d pairforge -Fc --no-owner --no-acl > (Join-Path $directory 'original.dump')
     if($LASTEXITCODE -ne 0) { throw 'pg_dump failed' }
     $crypto='$ErrorActionPreference="Stop"; & /usr/bin/openssl cms -encrypt -binary -aes-256-gcm -in /fixture/original.dump -out /fixture/backup.cms -outform DER /fixture/pki/backup.crt; if($LASTEXITCODE -ne 0){throw "encrypt"}; & /usr/bin/openssl cms -decrypt -binary -inform DER -in /fixture/backup.cms -recip /fixture/pki/backup.crt -inkey /fixture/pki/backup.key -out /fixture/restored.dump; if($LASTEXITCODE -ne 0){throw "decrypt"}'
-    [void](Docker @('run','--rm','--network','none','--mount',"type=bind,source=$directory,target=/fixture",$runtimeImage,'pwsh','-NoProfile','-Command',$crypto))
+    [void](Docker (@('run','--rm','--network','none')+$runtimeUser+@('--mount',"type=bind,source=$directory,target=/fixture",$runtimeImage,'pwsh','-NoProfile','-Command',$crypto)))
     if((Get-FileHash "$directory/original.dump").Hash -ne (Get-FileHash "$directory/restored.dump").Hash) { throw 'Encrypted backup changed bytes' }
     [void](Docker @('exec',$id,'createdb','-U','pairforge_bootstrap','-O','pairforge_migrator','pairforge_restore_test'))
     [void](Docker @('cp',"$directory/restored.dump","${id}:/tmp/restored.dump"))
@@ -50,6 +71,8 @@ try {
     $restored=Docker @('exec',$id,'psql','-U','pairforge_bootstrap','-d','pairforge_restore_test','-Atc','SELECT value FROM backup_fixture WHERE id=1')
     if($restored.Trim() -ne 'retained') { throw 'Restored data mismatch' }
     Write-Host 'PASS private certificate generation, PostgreSQL verified TLS, hostname rejection, API DDL denial, encrypted pg_dump and isolated pg_restore.'
+} catch {
+    if(-not $TestPkiFailureCleanup -or $_.Exception.Message -ne 'Injected failure after PKI generation') { throw }
 } finally {
     if($containerCreated) { [void](Docker @('rm','--force','--volumes',$id)) }
     if($networkCreated) { [void](Docker @('network','rm',$id)) }
@@ -59,3 +82,5 @@ try {
     if(-not $resolved.StartsWith($expected,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolved -Leaf) -ne $id) { throw 'Unsafe fixture cleanup path' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }
+if(Test-Path -LiteralPath $directory) { throw 'Fixture directory survived cleanup' }
+Write-Host 'PASS fixture directory cleanup.'
