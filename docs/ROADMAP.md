@@ -11,8 +11,10 @@ Do not begin the next major milestone automatically.
 
 Current milestone: Milestone 16 (IN PROGRESS). Milestone 15 is DONE. The bounded
 local load baseline, harness tests and candidate CI verification are complete.
-The optional AWS benchmark awaits a separate approval checkpoint; do not start
-AWS resources or Milestone 17 automatically.
+The approved AWS benchmark is partially complete: all nine collaboration stages
+and five Java submissions passed; 25 execution submissions remain. The hosts
+are stopped. A new bounded operating window and private authentication are
+required before continuing. Do not restart AWS or begin Milestone 17 automatically.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1706,12 +1708,28 @@ execution submissions including six warm-ups. The original measurements remain
 valid and have not been rerun. See `docs/LOAD_TESTING.md` for the environment,
 methodology, resource observations, cleanup evidence and limitations.
 
-Remaining checkpoint: decide whether to run the separately proposed 45-minute
-AWS benchmark. AWS measurements are not required by the local measurement scope
-above. If approved, complete the remote adapter checks, bounded measurements,
-results documentation and verified backup/shutdown before marking DONE. If
-declined, explicitly close this checkpoint using the completed local evidence.
-Do not treat this proposal as authorization to restart either AWS host.
+AWS checkpoint (2026-09-28): the approved 45-minute operating window ended with
+both hosts stopped, queues drained, sandbox/workspace cleanup verified and a
+fresh encrypted backup verified. All 2,040 expected collaboration deliveries and
+nine reconnect checks passed. The first Java batch accepted and completed five
+jobs, including its warm-up; both observers received terminal results. A multiline
+JSON parsing error in the adapter's subsequent read-only timing inspection
+stopped progression. The parser is fixed and the saved timings were recovered
+without rerunning any work. The approved seven-minute continuation did not start:
+the private login terminal was unavailable and the operating-window guard left
+insufficient time. No additional jobs were submitted.
+
+Remaining: obtain approval for a new bounded window, complete only the other
+two Java and three Python batches (25 submissions including five warm-ups),
+document their results and capacity observations, then repeat verified drain,
+backup and shutdown. Preserve the completed local and AWS measurements. Run
+`36374218145` passed Java but failed one frontend
+page test; dependent load/build/browser steps did not run. Its synchronization
+fix preserves all assertions. Replacement candidate `bdf5c54` passed Actions run
+`36375165081`: 365 Java, 70 frontend unit, 35 harness and 12 browser tests, with
+zero failures, errors or skips. Keep those gates green for the final candidate.
+See `docs/LOAD_TESTING.md` for partial results, fixes and operational evidence.
+Milestone 16 remains IN PROGRESS; the approved cloud checkpoint is not complete.
 
 ---
 
