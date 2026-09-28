@@ -88,12 +88,15 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:load
       # Collect unit results before Playwright clears its output directory.
       - name: Validate frontend unit suites
         if: always()
         working-directory: .
         shell: pwsh
-        run: ./scripts/check-ci-reports.ps1 -Kind Unit
+        run: |
+          ./scripts/check-ci-reports.ps1 -Kind Unit
+          ./scripts/check-ci-reports.ps1 -Kind Load
       - run: npm run build
       - name: Package API and worker for browser acceptance (Java tests run in the java job)
         working-directory: .
@@ -117,6 +120,7 @@ jobs:
           name: frontend-test-reports
           path: |
             .tmp/ci-reports/unit.json
+            .tmp/ci-reports/load.json
             .tmp/ci-reports/browser.json
           include-hidden-files: true
           if-no-files-found: error

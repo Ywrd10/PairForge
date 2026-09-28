@@ -17,4 +17,5 @@ export default [
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+  { files: ['tools/load/**/*.ts'], languageOptions: { globals: globals.node } },
 ]

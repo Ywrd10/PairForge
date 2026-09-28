@@ -1,0 +1,14 @@
+{
+  "maxConnections": 2,
+  "maxJobs": 4,
+  "maxDurationSeconds": 300,
+  "deadlineMs": 10000,
+  "terminalDeadlineMs": 60000,
+  "warmupSeconds": 1,
+  "measurementSeconds": 1,
+  "repetitions": 1,
+  "jobsPerLanguage": 1,
+  "stages": [2],
+  "updateIntervalMs": 500,
+  "executionBatchIntervalSeconds": 60
+}

@@ -14,6 +14,11 @@ the visible editor snapshot; committed RabbitMQ events notify authorized room
 browsers to retrieve status/output through REST. Refresh Status and reconnect
 recover missed notifications without automatically resubmitting code.
 
+For the bounded local collaboration/execution benchmark, see
+[load-testing methodology and results](docs/LOAD_TESTING.md). From the repository
+root, run `./scripts/run-load-tests.ps1 -Profile smoke` before `-Profile local`.
+These commands use disposable local infrastructure; they do not start AWS.
+
 ## Structure
 
 | Path | Purpose |

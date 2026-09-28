@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Java', 'Unit', 'Browser')][string]$Kind = 'Java',
+    [ValidateSet('Java', 'Unit', 'Browser', 'Load')][string]$Kind = 'Java',
     [string]$Root = (Split-Path $PSScriptRoot -Parent)
 )
 $ErrorActionPreference = 'Stop'
@@ -31,8 +31,8 @@ function Test-CiReports {
             }
         }
     } else {
-        $directory = if ($Kind -eq 'Unit') { 'src' } else { 'e2e' }
-        $pattern = if ($Kind -eq 'Unit') { '\.test\.tsx?$' } else { '\.spec\.ts$' }
+        $directory = if ($Kind -eq 'Unit') { 'src' } elseif ($Kind -eq 'Load') { 'tools/load' } else { 'e2e' }
+        $pattern = if ($Kind -ne 'Browser') { '\.test\.tsx?$' } else { '\.spec\.ts$' }
         $frontendRoot = Join-Path $Root 'frontend'
         foreach ($file in Get-ChildItem (Join-Path $frontendRoot $directory) -Recurse -File | Where-Object Name -Match $pattern) {
             $name = $file.FullName.Substring($frontendRoot.Length + 1).Replace('\', '/')

@@ -204,12 +204,16 @@ it('enforces expiry when focus returns to a suspended tab', async () => {
 })
 
 it('preserves the draft and selected language through successful and failed metadata refreshes', async () => {
+  const user = userEvent.setup()
   open(`/rooms/${room.id}`)
   await login()
   const source = await screen.findByLabelText('Source code')
   expect(source).toHaveProperty('value', expect.stringContaining('public class Main'))
-  fireEvent.change(source, { target: { value: 'my unsaved source' } })
-  fireEvent.change(screen.getByLabelText('Editor language'), { target: { value: 'PYTHON' } })
+  // Wait for the editor effect and external-store subscription before editing.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', false))
+  await user.clear(source)
+  await user.type(source, 'my unsaved source')
+  await user.selectOptions(screen.getByLabelText('Editor language'), 'PYTHON')
   expect(screen.getByRole('heading', { name: 'main.py' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Run' })).toHaveProperty('disabled', false)
   expect(screen.getByRole('region', { name: 'Connection status' }).textContent).toContain('Connected')
