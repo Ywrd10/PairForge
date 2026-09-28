@@ -3,14 +3,20 @@ import type { IStompSocket } from '@stomp/stompjs'
 import WebSocket from 'ws'
 import { until } from './core.ts'
 
-export const base = 'http://127.0.0.1:18080'
-export const origin = 'http://127.0.0.1:15173'
+export let base = 'http://127.0.0.1:18080'
+export let origin = 'http://127.0.0.1:15173'
+export const approvedRemote = 'https://d3pq3na8h2es74.cloudfront.net'
+// Explicit opt-in in the separate remote entry point; local profiles never call this.
+export function configureRemoteTarget(target: string) {
+  if (target !== approvedRemote) throw new Error('Only the approved HTTPS deployment is permitted')
+  base = target; origin = target
+}
 export interface Document { content: string; language: string; generationId: string; version: number }
 export interface DocumentEvent { type: string; roomId: string; clientUpdateId: string | null; document: Document | null }
 export interface ExecutionEvent { roomId: string; executionId: string; status: string; stateRevision: number }
 
 export async function request(path: string, token: string | undefined, body: unknown, signal: AbortSignal, deadlineMs: number) {
-  return fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : 'POST',
+  return fetch(`${base}/api${path}`, { method: body === undefined ? 'GET' : 'POST', redirect: 'error',
     headers: { Origin: origin, 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)]) })
 }
@@ -38,7 +44,7 @@ export class Peer {
     this.room = room; this.deadlineMs = deadlineMs
     this.client = new Client({
       webSocketFactory: () => {
-        this.socket = new WebSocket(`${base.replace('http:', 'ws:')}/ws`, ['v12.stomp'], { origin, maxPayload: 400000 })
+        this.socket = new WebSocket(`${base.replace(/^http/, 'ws')}/ws`, ['v12.stomp'], { origin, maxPayload: 400000, followRedirects: false })
         return this.socket as unknown as IStompSocket
       }, connectHeaders: { Authorization: `Bearer ${token}` }, reconnectDelay: 0,
       connectionTimeout: deadlineMs, heartbeatIncoming: 10000, heartbeatOutgoing: 10000,
