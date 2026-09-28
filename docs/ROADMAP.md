@@ -9,9 +9,10 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 15 (DONE). Deployed two-person acceptance,
-restricted execution, measured demo capacity, backup/restore and verified clean
-shutdown are recorded. Milestone 16 remains TODO and requires a separate request.
+Current milestone: Milestone 16 (IN PROGRESS). Milestone 15 is DONE. The bounded
+local load baseline, harness tests and candidate CI verification are complete.
+The optional AWS benchmark awaits a separate approval checkpoint; do not start
+AWS resources or Milestone 17 automatically.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1671,7 +1672,7 @@ remains the completion evidence. See `docs/DEPLOYMENT.md` for exact limitations.
 
 ## Milestone 16 — Load Testing
 
-**Status: TODO**
+**Status: IN PROGRESS**
 
 Measure separately:
 
@@ -1696,6 +1697,21 @@ Record:
 Document the exact test environment and methodology.
 
 Never present local benchmarks as production-scale performance.
+
+Local checkpoint: candidate `149b579` passed Actions run `36355070812` with
+365 Java, 70 frontend unit, 22 harness and 12 browser tests; zero failures,
+errors or skips. The saved baseline and documented summaries match: 2,040/2,040
+collaboration deliveries, nine successful reconnect checks and 30 successful
+execution submissions including six warm-ups. The original measurements remain
+valid and have not been rerun. See `docs/LOAD_TESTING.md` for the environment,
+methodology, resource observations, cleanup evidence and limitations.
+
+Remaining checkpoint: decide whether to run the separately proposed 45-minute
+AWS benchmark. AWS measurements are not required by the local measurement scope
+above. If approved, complete the remote adapter checks, bounded measurements,
+results documentation and verified backup/shutdown before marking DONE. If
+declined, explicitly close this checkpoint using the completed local evidence.
+Do not treat this proposal as authorization to restart either AWS host.
 
 ---
 

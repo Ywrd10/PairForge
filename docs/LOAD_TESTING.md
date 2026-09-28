@@ -112,6 +112,13 @@ The CI permission prerequisite passed on commit `54bee80` in
 365 Java, 70 frontend unit and 12 browser tests, zero failures/errors/skips.
 That run predates the load harness and is not evidence for its new code.
 
+Candidate `149b5798490075ebd7f33090d81dc25f71f6884b` subsequently passed
+[Actions run 36355070812](https://github.com/Ywrd10/PairForge/actions/runs/36355070812).
+Downloaded sanitized reports confirm 365 Java, 70 frontend unit, 22 harness and
+12 browser tests passed with zero failures, errors or skips. Browser retries are
+disabled. Required integration-report gates and frontend lint/typecheck/build
+also passed. No additional CI fix was needed for this candidate.
+
 Local harness verification currently includes 22 passing focused tests and 74
 CI gate checks, plus frontend typecheck/lint, 70 unit tests and production build.
 All twelve existing real-browser regression tests pass with retries disabled
@@ -190,6 +197,17 @@ worker readiness passed, no owned sandbox containers or job workspaces remained,
 and final fixture teardown succeeded. AWS remains stopped; its optional run
 requires the separate approval below. Milestone 17 is outside this work.
 
+Resume verification: recomputing the published artifact from the original report
+produced an exact match, including per-run samples and resource aggregates.
+Independent percentile checks and comparison with the rounded documentation
+tables passed. The completed baseline was preserved without rerunning it.
+The final launcher smoke report also records successful cleanup. Current local
+inspection found no benchmark JVMs, loopback listeners or temporary fixture
+directories; remaining Node processes belonged to Codex. Docker Desktop is
+stopped, so container inventory could not be freshly enumerated. The successful
+run-time zero-container/workspace checks remain the container-cleanup evidence.
+No AWS resources were started or queried during this resume verification.
+
 ## Optional AWS checkpoint — approval required
 
 No AWS benchmark is authorized or started by the local runner. After reviewing
@@ -213,6 +231,34 @@ the benchmark executions, queue observations, health and sandbox cleanup, and
 bounded host/JVM CPU, memory and disk samples through existing authorized SSH.
 Read CPU credits if existing permissions permit; do not expand IAM to obtain
 them. Record Standard-mode throttling or unavailable measurements explicitly.
+
+Keep the same exact workload: 1,024-byte documents, nominal two updates per
+second, five seconds of excluded warm-up and twenty seconds of measurement per
+collaboration stage, with one explicit reconnect/restore check per stage. Each
+execution batch contains one excluded warm-up and four measured fixed-output
+jobs; batch starts remain at least sixty seconds apart. Both authenticated
+observers receive terminal events. Ten-second request/document deadlines and
+120-second terminal deadlines remain explicit; uncertain submissions are never
+retried. Close unrelated sessions for the two approved users before measuring.
+
+Proposed operational guards, not production performance guarantees: stop new
+work on readiness loss, OOM, sandbox cleanup failure, uncertain submission or
+an unexpected execution/notification failure. Pause progression if either host
+exceeds 85% sampled CPU for sixty seconds, available memory falls below 256 MiB,
+or free disk falls below the greater of 2 GiB and 10%. Record peaks, sustained
+pressure, queue depth/drain time and any throttling; do not silently raise limits
+or resize hosts. Sampling can miss short peaks. Report latency distributions
+without inventing an AWS latency SLO from the local baseline.
+
+Prepare and test the small remote adapter before the paid window. On approval,
+verify STS account `298984481596` and IAM user `pairforge-deployer` using only
+profile `pairforge`, then verify the two recorded instance IDs and Standard
+CPU-credit mode. Follow `DEPLOYMENT.md`: start the existing hosts, check EC2
+status and disabled worker metadata, start PostgreSQL/Redis/RabbitMQ then the
+API/Caddy, and start the worker with the one-use helper. Verify private dependency
+TLS, sandbox preflight, HTTPS/WSS and the exact two-account allowlist before
+opening execution admission. Authenticate privately and use a fresh benchmark
+room; never put tokens in reports. No product API/schema change is proposed.
 
 Estimated incremental cost before credits/tax for 0.75 hours:
 
