@@ -6,6 +6,12 @@ import { CapacityGuard, hostSample } from './remote-policy.ts'
 
 const exec = promisify(execFile)
 const root = resolve(import.meta.dirname, '../../..')
+export function inspectionJson(stdout: string): unknown {
+  const lines = stdout.trim().split(/\r?\n/)
+  const first = lines.findIndex(l=>l.startsWith('[')||l.startsWith('{'))
+  if (first < 0) throw new Error('Missing remote JSON')
+  return JSON.parse(lines.slice(first).join('\n')) as unknown
+}
 function args(role: 'App' | 'Worker', command: string) {
   return ['-NoProfile','-File',resolve(root,'scripts/invoke-deployment-ssh.ps1'),'-Role',role,'-Command',command]
 }
@@ -14,9 +20,7 @@ export async function remoteCommand(pwsh: string, role: 'App' | 'Worker', mode: 
   try {
     const { stdout } = await exec(pwsh, args(role, `sudo timeout 45 bash /home/ubuntu/m16-observe.sh ${mode} ${role}${room ? ' '+room : ''}`),
       { timeout: 60000, maxBuffer: 128 * 1024, windowsHide: true })
-    const lines = stdout.trim().split(/\r?\n/).filter(l=>l.startsWith('[')||l.startsWith('{'))
-    if (lines.length !== 1) throw new Error('Missing remote JSON')
-    return JSON.parse(lines[0]) as unknown
+    return inspectionJson(stdout)
   } catch { throw new Error('Private benchmark inspection failed') }
 }
 export function observeHosts(pwsh: string, abort: AbortController) {

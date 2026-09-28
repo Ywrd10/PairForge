@@ -3,14 +3,14 @@ import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { cpus, platform, release } from 'node:os'
 import { distribution, until } from './core.ts'
-import { approvedIdentity, privateSessions, remoteConfig } from './remote-policy.ts'
+import { approvedIdentity, privateSessions, remoteConfig, resumeBudget } from './remote-policy.ts'
 import { observeHosts, remoteCommand } from './remote-io.ts'
 import { configureRemoteTarget, json } from './transport.ts'
 import { collaboration } from './collaboration.ts'
 import { execution } from './execution.ts'
 
-const [target,pwsh,destination] = process.argv.slice(2)
-if (!target || !pwsh || !destination || process.argv.length !== 5) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
+const [target,pwsh,destination,resumePath] = process.argv.slice(2)
+if (!target || !pwsh || !destination || ![5,6].includes(process.argv.length)) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
 configureRemoteTarget(target)
 const settings = remoteConfig(JSON.parse(await readFile(new URL('./local.json',import.meta.url),'utf8')))
 const directory = resolve(destination)
@@ -21,9 +21,12 @@ let input=''
 for await (const chunk of process.stdin) { input+=String(chunk); if(input.length>32768) throw new Error('Private input bound exceeded') }
 clearTimeout(inputTimer)
 const sessions = privateSessions(input,Date.now()); input=''
-const timeout = setTimeout(()=>abort.abort(),Math.min(900000,...sessions.map(s=>Date.parse(s.expiresAt)-Date.now()-5000)))
+const previous=resumePath ? JSON.parse(await readFile(resolve(resumePath),'utf8')) as Record<string,unknown> : undefined
+const remaining=previous ? resumeBudget(previous,Date.now()) : 900000
+const timeout = setTimeout(()=>abort.abort(),Math.min(remaining,...sessions.map(s=>Date.parse(s.expiresAt)-Date.now()-5000)))
 const interrupt=()=>abort.abort();process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt)
 const report: Record<string,unknown> = { started:new Date().toISOString(), settings, target, environment:{kind:'AWS two-host deployment',generatorOS:platform(),generatorRelease:release(),generatorCPU:cpus()[0]?.model,node:process.version},collaboration:[],execution:[],passed:false }
+if(previous){Object.assign(report,previous,{passed:false,resumedAt:new Date().toISOString(),finished:undefined,failure:undefined});}
 const collab=report.collaboration as unknown[], executions=report.execution as unknown[]
 let observer: ReturnType<typeof observeHosts> | undefined, phase='authentication'
 const save=()=>writeFile(resolve(directory,'report.json'),JSON.stringify(report,null,2)+'\n')
@@ -34,19 +37,30 @@ try {
   observer=observeHosts(pwsh,abort)
   await until(()=>{try {observer!.guard.fresh(performance.now());return true}catch{return false}},60000,abort.signal)
   observer.startGuard()
-  const room=await json<{room:{id:string};invitationToken:string}>('/rooms',tokens[0],{name:'Milestone 16 AWS bounded benchmark',language:'PYTHON'},abort.signal,10000)
+  const room=resumePath ? {room:{id:(await readFile(resolve(resumePath,'../room-id.txt'),'utf8')).trim()},invitationToken:''} : await json<{room:{id:string};invitationToken:string}>('/rooms',tokens[0],{name:'Milestone 16 AWS bounded benchmark',language:'PYTHON'},abort.signal,10000)
+  if(!/^[0-9a-f-]{36}$/.test(room.room.id))throw new Error('Invalid benchmark room')
   // Private correlation file contains only the new room UUID, never tokens.
   await writeFile(resolve(directory,'room-id.txt'),room.room.id)
-  await json(`/rooms/${room.room.id}/join`,tokens[1],{invitationToken:room.invitationToken},abort.signal,10000)
-  for(let repetition=1;repetition<=3;repetition++) for(const connections of settings.stages) {
+  if(!previous)await json(`/rooms/${room.room.id}/join`,tokens[1],{invitationToken:room.invitationToken},abort.signal,10000)
+  else {
+    await Promise.all(tokens.map(t=>json(`/rooms/${room.room.id}`,t,undefined,abort.signal,10000)))
+    const rows=await remoteCommand(pwsh,'App','timings',room.room.id) as {status:string;queue_ms:number;duration_ms:number}[]
+    const batch=executions[0] as {jobs:Record<string,unknown>[];queueWaitMs?:unknown;durationMs?:unknown}
+    if(rows.length!==5||rows.some(r=>r.status!=='SUCCEEDED'||!Number.isFinite(r.queue_ms)||!Number.isFinite(r.duration_ms)))throw new Error('Cannot recover exclusive five-job timing order')
+    batch.jobs=batch.jobs.map((job,i)=>({...job,queueMs:rows[i].queue_ms,durationMs:rows[i].duration_ms}))
+    batch.queueWaitMs=distribution(rows.slice(1).map(r=>r.queue_ms));batch.durationMs=distribution(rows.slice(1).map(r=>r.duration_ms))
+    report.timingRecovery='First five exclusive room jobs recovered in PostgreSQL creation order; no jobs resubmitted'
+  }
+  for(let repetition=1;!previous&&repetition<=3;repetition++) for(const connections of settings.stages) {
     phase=`collaboration-${connections}-repeat-${repetition}`;observer.phase(phase);console.log(phase)
     const result=await collaboration(settings,room.room.id,tokens,connections,abort.signal)
     collab.push({repetition,...result});await save()
     if(!result.passed)throw new Error('Collaboration observation failed')
     await delay(500,undefined,{signal:abort.signal})
   }
-  let last=-Infinity,total=0
+  let last=-Infinity,total=previous?5:0
   for(let repetition=1;repetition<=3;repetition++) for(const language of ['JAVA','PYTHON'] as const) {
+    if(previous&&repetition===1&&language==='JAVA')continue
     const pause=60000-(performance.now()-last)
     if(pause>0){observer.phase('execution-cooldown');await delay(pause,undefined,{signal:abort.signal})}
     abort.signal.throwIfAborted();observer.guard.fresh(performance.now())
@@ -79,7 +93,7 @@ try {
   report.failure={phase,reason:abort.signal.aborted?'Deadline, interruption or capacity guard stopped work':'Scenario or inspection failed; no uncertain submission retried'};process.exitCode=1
 } finally {
   clearTimeout(timeout)
-  if(observer){await observer.stop();report.resources=observer.samples;report.resourceErrors=observer.failures;if(observer.failures.length){report.passed=false;process.exitCode=1}}
+  if(observer){await observer.stop();report.resources=[...(previous?.resources as unknown[]??[]),...observer.samples];report.resourceErrors=observer.failures;if(observer.failures.length){report.passed=false;process.exitCode=1}}
   sessions.forEach(s=>{s.accessToken=''})
   report.finished=new Date().toISOString();await save()
   process.removeListener('SIGINT',interrupt);process.removeListener('SIGTERM',interrupt)

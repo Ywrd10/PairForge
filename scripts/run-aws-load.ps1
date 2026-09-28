@@ -1,7 +1,8 @@
 #Requires -Version 7.4
 param(
     [Parameter(Mandatory)][string]$NodePath,
-    [string]$ReportDirectory="$PSScriptRoot/../.tmp/m16-aws"
+    [string]$ReportDirectory="$PSScriptRoot/../.tmp/m16-aws",
+    [string]$ResumeReport
 )
 $ErrorActionPreference='Stop'
 $target='https://d3pq3na8h2es74.cloudfront.net'
@@ -31,6 +32,7 @@ try {
     $info.RedirectStandardInput=$true
     # Progress and safe errors go to this private terminal; tokens travel only on stdin.
     foreach($argument in @((Join-Path $root 'frontend/tools/load/remote-run.ts'),$target,(Join-Path $PSHOME 'pwsh.exe'),$ReportDirectory)) { $info.ArgumentList.Add($argument) }
+    if($ResumeReport){$info.ArgumentList.Add([IO.Path]::GetFullPath($ResumeReport))}
     $process=[Diagnostics.Process]::Start($info)
     $process.StandardInput.WriteLine((ConvertTo-Json -InputObject @($sessions) -Compress))
     $process.StandardInput.Close()

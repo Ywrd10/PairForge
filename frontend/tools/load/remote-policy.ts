@@ -53,3 +53,19 @@ export function privateSessions(input: string, now: number) {
     return value
   } catch { throw new Error('Two fresh private sessions required; input is not logged') }
 }
+// A narrowly scoped inspection recovery, never a general failed-job retry.
+export function resumeBudget(previous: Record<string,unknown>, now: number) {
+  remoteConfig(previous.settings)
+  const c=previous.collaboration as {passed:boolean;restored:boolean}[]
+  const e=previous.execution as {passed:boolean;submitted:number;accepted:number;uncertain:number;language:string;repetition:number;jobs:{status:string}[]}[]
+  const failure=previous.failure as {phase:string;reason:string}
+  if(previous.target!=='https://d3pq3na8h2es74.cloudfront.net'||!failure||failure.phase!=='execution-JAVA-repeat-1'
+    ||failure.reason!=='Scenario or inspection failed; no uncertain submission retried'
+    ||!Array.isArray(c)||c.length!==9||c.some(x=>!x.passed||!x.restored)||!Array.isArray(e)||e.length!==1||!e[0].passed
+    ||e[0].language!=='JAVA'||e[0].repetition!==1||e[0].submitted!==5||e[0].accepted!==5||e[0].uncertain!==0
+    ||!Array.isArray(e[0].jobs)||e[0].jobs.length!==5||e[0].jobs.some(j=>j.status!=='SUCCEEDED')||JSON.stringify(previous.resourceErrors)!=='[]')
+    throw new Error('Resume requires the verified five-job inspection-only checkpoint')
+  const remaining=Date.parse(String(previous.started))+900000-now
+  if(!Number.isFinite(remaining)||remaining<=0||remaining>900000)throw new Error('Original benchmark deadline expired or invalid')
+  return remaining
+}

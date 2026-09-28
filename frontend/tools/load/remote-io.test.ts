@@ -6,9 +6,15 @@ vi.mock('node:child_process',()=>({execFile:vi.fn(),spawn:vi.fn(()=>{
   const child=Object.assign(new EventEmitter(),{stdout:new PassThrough(),stderr:new PassThrough(),exitCode:0,pid:undefined,kill:vi.fn()})
   state.children.push(child);return child
 })}))
-import { observeHosts } from './remote-io.ts'
+import { inspectionJson, observeHosts } from './remote-io.ts'
 const sample=(role:string)=>JSON.stringify({role,cpuPercent:20,availableBytes:2**30,diskAvailableBytes:10*2**30,diskTotalBytes:30*2**30,oomKills:0,cleanupFailures:0,healthy:true,ready:0,unacked:0})+'\n'
 afterEach(()=>{state.children=[];vi.useRealTimers()})
+it('parses multiline PostgreSQL JSON after the identity preamble without truncation',()=>{
+  expect(inspectionJson('Verified deployment identity\n[{"id":"first"},\n {"id":"second"}]\n')).toEqual([{id:'first'},{id:'second'}])
+  expect(()=>inspectionJson('Verified identity only')).toThrow()
+  expect(()=>inspectionJson('[{"id":"first"},')).toThrow()
+  expect(()=>inspectionJson('[]\nunexpected trailing data')).toThrow()
+})
 it('consumes both private host streams, enforces freshness, and closes readers on failure',async()=>{
   vi.useFakeTimers();const abort=new AbortController(),watch=observeHosts('pwsh',abort)
   const children=state.children as (EventEmitter & {stdout:PassThrough})[]

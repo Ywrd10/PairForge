@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { approvedIdentity, approvedUsers, CapacityGuard, hostSample, privateSessions, remoteConfig } from './remote-policy.ts'
+import { approvedIdentity, approvedUsers, CapacityGuard, hostSample, privateSessions, remoteConfig, resumeBudget } from './remote-policy.ts'
 import { configureRemoteTarget } from './transport.ts'
 import local from './local.json'
 
@@ -21,6 +21,18 @@ it('requires both distinct approved identities', () => {
   approvedIdentity([...approvedUsers].reverse())
   expect(()=>approvedIdentity([approvedUsers[0],approvedUsers[0]])).toThrow()
   expect(()=>approvedIdentity([approvedUsers[0],'other'])).toThrow()
+})
+it('resumes only verified completed work without resetting the original deadline',()=>{
+  const checkpoint={settings:local,target:'https://d3pq3na8h2es74.cloudfront.net',started:new Date(0).toISOString(),
+    failure:{phase:'execution-JAVA-repeat-1',reason:'Scenario or inspection failed; no uncertain submission retried'},
+    collaboration:Array.from({length:9},()=>({passed:true,restored:true})),resourceErrors:[],
+    execution:[{passed:true,submitted:5,accepted:5,uncertain:0,language:'JAVA',repetition:1,jobs:Array.from({length:5},()=>({status:'SUCCEEDED'}))}]}
+  expect(resumeBudget(checkpoint,300000)).toBe(600000)
+  expect(()=>resumeBudget(checkpoint,900000)).toThrow('deadline')
+  expect(()=>resumeBudget({...checkpoint,resourceErrors:['health loss']},300000)).toThrow()
+  expect(()=>resumeBudget({...checkpoint,execution:[{...checkpoint.execution[0],uncertain:1}]},300000)).toThrow()
+  expect(()=>resumeBudget({...checkpoint,execution:[{...checkpoint.execution[0],submitted:6}]},300000)).toThrow()
+  expect(()=>resumeBudget({...checkpoint,collaboration:[]},300000)).toThrow()
 })
 it('rejects malformed samples rather than substituting zero', () => {
   for (const change of [{cpuPercent:NaN},{healthy:'UP'},{diskTotalBytes:0},{ready:-1},{role:'other'}]) expect(()=>hostSample({...sample(),...change})).toThrow()
