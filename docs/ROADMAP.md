@@ -16,8 +16,14 @@ Completed work was preserved without repetition. AWS queues and sandboxes are
 clean, the final encrypted backup is verified, and both hosts are stopped.
 Milestone 17 (Portfolio Polish) is DONE. The README, architecture visualization,
 setup/testing guides, measured evidence and limitations are ready for review.
-Milestone 18 remains TODO. Do not restart AWS, repeat Milestone 16 work, or begin
-the next milestone automatically.
+Milestone 18 (Beta Testing) is IN PROGRESS. Two external testers' reported passes
+and the approved beta window's actual evidence are recorded in
+`docs/BETA_TESTING.md`. The final database contains only two Java runs from
+Tester B, contradicting reported Python/Tester A completion; the evidence gap
+must be resolved before DONE. Temporary grants are removed, admission closed,
+queues/sandboxes clean, encrypted backup verified, and both AWS hosts stopped.
+Any retest requires fresh window approval. Do not repeat completed Milestone 16
+benchmarks or Milestone 17 documentation work.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1819,7 +1825,7 @@ with the final commit. Milestone 18 remains untouched.
 
 ## Milestone 18 — Beta Testing
 
-**Status: TODO**
+**Status: IN PROGRESS**
 
 Goal:
 
@@ -1841,6 +1847,51 @@ Record genuine:
 Fix meaningful problems.
 
 Never fabricate usage numbers.
+
+Preparation checkpoint (2026-09-28): work began on `codex/milestone-18-beta`
+from clean `master` containing Milestone 17 commit `bf44671`. The tester workflow,
+feedback template, issue/fix policy, factual results ledger and deployment plan
+are in [BETA_TESTING.md](BETA_TESTING.md). The proposed window is 45 minutes on
+the two existing hosts, with two external volunteers, at most two tester room
+tabs, worker concurrency one and at most twelve execution submissions. Window
+approval and individually approved registered tester UUIDs are required before
+restricted execution. No AWS restart, allowlist change, product-code change,
+new resource, benchmark repetition or real-user session occurred during
+preparation. The later approved window and results follow below.
+
+Beta-window checkpoint (2026-09-28): the owner confirmed two distinct external
+testers using Chrome on PCs and reported all requested checks passed, with no
+material tester-blocking issues. Actual evidence verifies independent account
+registration/login, shared membership, and Tester B's Java compilation error
+and successful execution. PostgreSQL increased from 48 to 50 executions; no
+Python run, Tester A submission or Tester A room creation was recorded, despite
+the follow-up completion confirmation. `BETA-EVIDENCE-01` remains an unresolved
+completion blocker, not a proven product defect. Do not mark missing cases
+verified or claim fully verified completed-session counts.
+
+The operation took 37.51 minutes including independent stop verification, within
+the approved 45-minute window. Both individually approved temporary grants were
+removed with original approvals/root-only environment permissions preserved.
+Admission closed, both queues drained, no sandbox/job workspace remained, a
+fresh encrypted backup passed downloaded checksum verification with a protected
+recovery copy, application/dependency services stopped, and both original EC2
+hosts were independently verified stopped. No resource was created or resized.
+The requested worker stop returned JVM exit 143 and systemd's failed label;
+process/cleanup evidence confirmed a stopped worker. This status limitation is
+documented rather than hidden. No product-code fix or benchmark rerun occurred.
+
+Documentation checks passed for links/anchors, fences, privacy patterns, scoped
+changes, unchanged Milestone 16/17 sections and whitespace. Normal CI is required
+on the evidence-checkpoint push. Optional real screenshots remain unsupplied.
+Milestone 18 stays IN PROGRESS until the reported/durable evidence discrepancy
+is resolved and final completion gates pass; AWS remains stopped.
+
+Completion requires actual external-user testing and genuine feedback, material
+issues fixed or explicitly documented and acknowledged, relevant regression
+checks and final normal CI, consistent documentation/secret hygiene, and verified
+cleanup, encrypted backup and stopped hosts if AWS is used. Capture only actual
+final UI screenshots using `docs/SCREENSHOTS.md`. Do not mark DONE on preparation
+alone or add a Milestone 19.
 
 ---
 
