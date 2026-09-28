@@ -6116,7 +6116,7 @@
   "operationalVerification": {
     "windowStart": "2026-09-28T13:17:06.3696274+00:00",
     "hostsStoppedBy": "2026-09-28T13:34:32.6830279+00:00",
-    "elapsedSeconds": 1046.314,
+    "elapsedSeconds": 1046.313,
     "durableSuccessfulExecutions": 30,
     "originalFiveDurableRowsUnchanged": true,
     "outstandingExecutions": 0,
