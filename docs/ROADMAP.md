@@ -14,8 +14,10 @@ benchmark are complete: 2,040/2,040 collaboration deliveries and nine reconnect
 checks in each environment, plus all thirty executions in each environment.
 Completed work was preserved without repetition. AWS queues and sandboxes are
 clean, the final encrypted backup is verified, and both hosts are stopped.
-Milestone 17 remains TODO. Do not restart AWS or begin the next milestone
-automatically.
+Milestone 17 (Portfolio Polish) is DONE. The README, architecture visualization,
+setup/testing guides, measured evidence and limitations are ready for review.
+Milestone 18 remains TODO. Do not restart AWS, repeat Milestone 16 work, or begin
+the next milestone automatically.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1764,7 +1766,7 @@ operational limitations. Milestone 17 remains untouched.
 
 ## Milestone 17 — Portfolio Polish
 
-**Status: TODO**
+**Status: DONE**
 
 Deliverables:
 
@@ -1783,6 +1785,35 @@ Acceptance test:
 A technical reviewer should understand what PairForge is, why its architecture
 is interesting, and how to run it within approximately one minute of opening
 the repository.
+
+Completion evidence (2026-09-28): the root README now leads with the implemented
+workflow, engineering features and a Mermaid architecture diagram, followed by
+the execution path, role-based stack, verified tests, bounded AWS measurements,
+deployment/security boundaries, usable local startup and explicit limitations.
+It avoids private account/host/allowlist identifiers. The original 900-line
+development log was replaced with focused `LOCAL_DEVELOPMENT.md` and `TESTING.md`
+guides; dated verification/incident notes remain in
+`docs/history/VERIFICATION_NOTES.md`. Architecture cross-references now point to
+the current guides and clarify that Compose starts infrastructure only.
+
+No tracked presentation screenshots were available. The approved fallback is
+documented in `docs/SCREENSHOTS.md`: three exact manual captures for collaboration,
+execution output and the dashboard, with redaction guidance. No invented images,
+broken image placeholders or demo outcomes were added. These optional owner
+captures remain a presentation follow-up, not fabricated completion evidence.
+
+Documentation checks passed: relative links/anchors, Markdown fences, GitHub
+Markdown rendering, Mermaid parsing/rendering with visual inspection, quoted
+benchmark/test counts against saved artifacts, script/configuration references,
+fifteen PowerShell command-block syntax checks, and whitespace/repository hygiene.
+Exact README setup blocks were exercised against copied real helpers with
+external commands stubbed; this verified ordering/profile/environment handoff
+without starting application services. Maven/tool versions and Compose config
+validation passed. This is documentation verification, not a new end-to-end
+startup or benchmark run. No product code, configuration, dependency pins, CI
+workflow, Milestone 16 evidence or deployment resource changed. Full existing
+CI runs automatically on the publication push; the resulting run is reported
+with the final commit. Milestone 18 remains untouched.
 
 ---
 

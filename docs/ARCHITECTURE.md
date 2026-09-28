@@ -1635,7 +1635,8 @@ Only sanitized source-path/status/count summaries are uploaded (7-day retention)
 even after a failing test. XML entities/DTDs are rejected. Raw reports and browser
 captures remain excluded to protect credentials and source/output. Acceptance
 requires real failed-test workflow evidence followed by a passing clean candidate;
-local validation alone is insufficient. See README for commands and pinned versions.
+local validation alone is insufficient. See [TESTING.md](TESTING.md) for commands
+and [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for toolchain requirements.
 Browser fault fixtures close both the browser and upstream sides of Playwright's
 WebSocket proxy when injecting a disconnect; closing only one side can leave
 upstream sessions behind and interfere with later reconnect checks.
@@ -1672,7 +1673,10 @@ they do not claim to stop the developer's shared Docker daemon.
 
 ## 17. Local Development
 
-Docker Compose should provide infrastructure dependencies.
+Docker Compose provides infrastructure dependencies; the API, frontend and worker
+run as separate local processes. The current Windows helper workflow, including
+migration-before-worker-provisioning order and sandbox opt-in, is documented in
+[LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
 
 Expected infrastructure:
 
@@ -1694,11 +1698,8 @@ file does not automatically populate locally launched JVMs; document and script
 that handoff. The API and worker expose health on separate ports (8080/8081);
 the worker has no public product endpoints. Frontend development uses port 5173.
 
-Eventually:
-
-    docker compose up
-
-should provide a convenient development environment where practical.
+The root Compose file starts PostgreSQL, Redis and RabbitMQ only. It does not
+start application processes or enable worker execution.
 
 ---
 
