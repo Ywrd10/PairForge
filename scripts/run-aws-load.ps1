@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)][string]$NodePath,
     [string]$ReportDirectory="$PSScriptRoot/../.tmp/m16-aws",
-    [string]$ResumeReport
+    [string]$ResumeReport,
+    [switch]$ApprovedSevenMinuteContinuation
 )
 $ErrorActionPreference='Stop'
 $target='https://d3pq3na8h2es74.cloudfront.net'
@@ -33,6 +34,11 @@ try {
     # Progress and safe errors go to this private terminal; tokens travel only on stdin.
     foreach($argument in @((Join-Path $root 'frontend/tools/load/remote-run.ts'),$target,(Join-Path $PSHOME 'pwsh.exe'),$ReportDirectory)) { $info.ArgumentList.Add($argument) }
     if($ResumeReport){$info.ArgumentList.Add([IO.Path]::GetFullPath($ResumeReport))}
+    if($ApprovedSevenMinuteContinuation){
+        if(-not $ResumeReport){throw 'Explicit continuation requires the verified report'}
+        $windowStart=(Get-Content -LiteralPath (Join-Path $root '.tmp/m16-aws-start-time.txt') -Raw).Trim()
+        $info.ArgumentList.Add($windowStart)
+    }
     $process=[Diagnostics.Process]::Start($info)
     $process.StandardInput.WriteLine((ConvertTo-Json -InputObject @($sessions) -Compress))
     $process.StandardInput.Close()

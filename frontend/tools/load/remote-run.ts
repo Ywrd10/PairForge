@@ -9,8 +9,8 @@ import { configureRemoteTarget, json } from './transport.ts'
 import { collaboration } from './collaboration.ts'
 import { execution } from './execution.ts'
 
-const [target,pwsh,destination,resumePath] = process.argv.slice(2)
-if (!target || !pwsh || !destination || ![5,6].includes(process.argv.length)) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
+const [target,pwsh,destination,resumePath,approvedWindowStart] = process.argv.slice(2)
+if (!target || !pwsh || !destination || ![5,6,7].includes(process.argv.length)) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
 configureRemoteTarget(target)
 const settings = remoteConfig(JSON.parse(await readFile(new URL('./local.json',import.meta.url),'utf8')))
 const directory = resolve(destination)
@@ -22,11 +22,12 @@ for await (const chunk of process.stdin) { input+=String(chunk); if(input.length
 clearTimeout(inputTimer)
 const sessions = privateSessions(input,Date.now()); input=''
 const previous=resumePath ? JSON.parse(await readFile(resolve(resumePath),'utf8')) as Record<string,unknown> : undefined
-const remaining=previous ? resumeBudget(previous,Date.now()) : 900000
+const remaining=previous ? resumeBudget(previous,Date.now(),approvedWindowStart?Date.parse(approvedWindowStart):undefined) : 900000
 const timeout = setTimeout(()=>abort.abort(),Math.min(remaining,...sessions.map(s=>Date.parse(s.expiresAt)-Date.now()-5000)))
 const interrupt=()=>abort.abort();process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt)
 const report: Record<string,unknown> = { started:new Date().toISOString(), settings, target, environment:{kind:'AWS two-host deployment',generatorOS:platform(),generatorRelease:release(),generatorCPU:cpus()[0]?.model,node:process.version},collaboration:[],execution:[],passed:false }
 if(previous){Object.assign(report,previous,{passed:false,resumedAt:new Date().toISOString(),finished:undefined,failure:undefined});}
+if(approvedWindowStart){report.approvedContinuation={maximumSeconds:420,operatingWindowStart:approvedWindowStart,budgetMs:remaining};}
 const collab=report.collaboration as unknown[], executions=report.execution as unknown[]
 let observer: ReturnType<typeof observeHosts> | undefined, phase='authentication'
 const save=()=>writeFile(resolve(directory,'report.json'),JSON.stringify(report,null,2)+'\n')

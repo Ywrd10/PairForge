@@ -33,6 +33,9 @@ it('resumes only verified completed work without resetting the original deadline
   expect(()=>resumeBudget({...checkpoint,execution:[{...checkpoint.execution[0],uncertain:1}]},300000)).toThrow()
   expect(()=>resumeBudget({...checkpoint,execution:[{...checkpoint.execution[0],submitted:6}]},300000)).toThrow()
   expect(()=>resumeBudget({...checkpoint,collaboration:[]},300000)).toThrow()
+  expect(resumeBudget(checkpoint,1800000,0)).toBe(420000)
+  expect(()=>resumeBudget(checkpoint,2400000,0)).toThrow('operating window')
+  expect(()=>resumeBudget(checkpoint,1800000,NaN)).toThrow('operating window')
 })
 it('rejects malformed samples rather than substituting zero', () => {
   for (const change of [{cpuPercent:NaN},{healthy:'UP'},{diskTotalBytes:0},{ready:-1},{role:'other'}]) expect(()=>hostSample({...sample(),...change})).toThrow()

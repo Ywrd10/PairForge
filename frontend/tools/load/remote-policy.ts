@@ -54,7 +54,7 @@ export function privateSessions(input: string, now: number) {
   } catch { throw new Error('Two fresh private sessions required; input is not logged') }
 }
 // A narrowly scoped inspection recovery, never a general failed-job retry.
-export function resumeBudget(previous: Record<string,unknown>, now: number) {
+export function resumeBudget(previous: Record<string,unknown>, now: number, approvedWindowStart?: number) {
   remoteConfig(previous.settings)
   const c=previous.collaboration as {passed:boolean;restored:boolean}[]
   const e=previous.execution as {passed:boolean;submitted:number;accepted:number;uncertain:number;language:string;repetition:number;jobs:{status:string}[]}[]
@@ -65,6 +65,13 @@ export function resumeBudget(previous: Record<string,unknown>, now: number) {
     ||e[0].language!=='JAVA'||e[0].repetition!==1||e[0].submitted!==5||e[0].accepted!==5||e[0].uncertain!==0
     ||!Array.isArray(e[0].jobs)||e[0].jobs.length!==5||e[0].jobs.some(j=>j.status!=='SUCCEEDED')||JSON.stringify(previous.resourceErrors)!=='[]')
     throw new Error('Resume requires the verified five-job inspection-only checkpoint')
+  if(approvedWindowStart!==undefined) {
+    // Explicit owner-approved seven-minute continuation, still inside the original
+    // 45-minute host window and leaving five minutes for verified shutdown.
+    const remaining=Math.min(420000,approvedWindowStart+2700000-300000-now)
+    if(!Number.isFinite(remaining)||now<approvedWindowStart||remaining<360000)throw new Error('Insufficient approved operating window for continuation and shutdown')
+    return remaining
+  }
   const remaining=Date.parse(String(previous.started))+900000-now
   if(!Number.isFinite(remaining)||remaining<=0||remaining>900000)throw new Error('Original benchmark deadline expired or invalid')
   return remaining
