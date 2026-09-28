@@ -45,16 +45,19 @@ export class CapacityGuard {
 export function approvedIdentity(ids: string[]) {
   if (ids.length !== 2 || new Set(ids).size !== 2 || ids.some(id => !approvedUsers.includes(id))) throw new Error('Only the two approved accounts may benchmark')
 }
-export function privateSessions(input: string, now: number) {
+export function privateSessions(input: string, now: number, minimumValidityMs: 480000 | 700000 = 700000) {
   try {
+    if (![480000,700000].includes(minimumValidityMs)) throw new Error()
     const value = JSON.parse(input) as { accessToken: string; expiresAt: string }[]
     if (!Array.isArray(value) || value.length !== 2 || value.some(s => !s || typeof s.accessToken !== 'string' || !s.accessToken
-      || !Number.isFinite(Date.parse(s.expiresAt)) || Date.parse(s.expiresAt)-now < 700000)) throw new Error()
+      || !Number.isFinite(Date.parse(s.expiresAt)) || Date.parse(s.expiresAt)-now < minimumValidityMs)) throw new Error()
     return value
   } catch { throw new Error('Two fresh private sessions required; input is not logged') }
 }
 // A narrowly scoped inspection recovery, never a general failed-job retry.
-export function resumeBudget(previous: Record<string,unknown>, now: number, approvedWindowStart?: number) {
+export function resumeBudget(previous: Record<string,unknown>, now: number, approvedWindowStart?: number, operatingWindowMinutes: 20 | 45 = 45) {
+  if (![20,45].includes(operatingWindowMinutes) || (operatingWindowMinutes === 20 && approvedWindowStart === undefined))
+    throw new Error('Explicit approved operating window required')
   remoteConfig(previous.settings)
   const c=previous.collaboration as {passed:boolean;restored:boolean}[]
   const e=previous.execution as {passed:boolean;submitted:number;accepted:number;uncertain:number;language:string;repetition:number;jobs:{status:string}[]}[]
@@ -66,9 +69,9 @@ export function resumeBudget(previous: Record<string,unknown>, now: number, appr
     ||!Array.isArray(e[0].jobs)||e[0].jobs.length!==5||e[0].jobs.some(j=>j.status!=='SUCCEEDED')||JSON.stringify(previous.resourceErrors)!=='[]')
     throw new Error('Resume requires the verified five-job inspection-only checkpoint')
   if(approvedWindowStart!==undefined) {
-    // Explicit owner-approved seven-minute continuation, still inside the original
-    // 45-minute host window and leaving five minutes for verified shutdown.
-    const remaining=Math.min(420000,approvedWindowStart+2700000-300000-now)
+    // At most seven minutes of remaining work, within the explicitly approved
+    // host window and leaving five minutes for verified shutdown.
+    const remaining=Math.min(420000,approvedWindowStart+operatingWindowMinutes*60000-300000-now)
     if(!Number.isFinite(remaining)||now<approvedWindowStart||remaining<360000)throw new Error('Insufficient approved operating window for continuation and shutdown')
     return remaining
   }

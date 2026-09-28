@@ -119,7 +119,7 @@ Downloaded sanitized reports confirm 365 Java, 70 frontend unit, 22 harness and
 disabled. Required integration-report gates and frontend lint/typecheck/build
 also passed. No additional CI fix was needed for this candidate.
 
-Local harness verification currently includes 22 passing focused tests and 74
+The initial local harness verification included 22 passing focused tests and 74
 CI gate checks, plus frontend typecheck/lint, 70 unit tests and production build.
 All twelve existing real-browser regression tests pass with retries disabled
 after the shared fixture changes. The final launcher smoke run also passes after
@@ -194,8 +194,9 @@ samples.
 
 Both execution queues finished with zero ready/unacknowledged messages. API and
 worker readiness passed, no owned sandbox containers or job workspaces remained,
-and final fixture teardown succeeded. AWS remains stopped; its optional run
-requires the separate approval below. Milestone 17 is outside this work.
+and final fixture teardown succeeded. The separately approved AWS measurements
+are recorded below; these local measurements were preserved. Milestone 17 is
+outside this work.
 
 Resume verification: recomputing the published artifact from the original report
 produced an exact match, including per-run samples and resource aggregates.
@@ -340,8 +341,8 @@ backup success and stopped EC2 hosts remains necessary after the runner exits.
 
 ## Partial AWS measurements — 2026-09-28
 
-**This is an incomplete cloud benchmark, not Milestone 16 completion.** Preserve
-the existing local baseline and completed cloud stages. The sanitized evidence is
+**Historical checkpoint, completed by the continuation below.** The original
+partial artifact remains unchanged so the interruption is visible. Its evidence is
 [`load-results/m16-aws-partial-2026-09-28.json`](load-results/m16-aws-partial-2026-09-28.json).
 Its overall `passed` flag remains false; it retains the actual inspection failure,
 per-stage samples, recovered durable timings and resource observations. It contains
@@ -373,7 +374,7 @@ collaboration stages completed with the approved 1,024-byte document, one writer
 nominal 2 updates/sec, five-second warm-up and twenty-second measured window.
 Only the first Java batch ran: one excluded warm-up followed by four measured
 fixed-output jobs. No Python batch or remaining Java batch ran. The full 30-job
-plan has **25 submissions remaining**, including five warm-ups.
+plan had **25 submissions remaining** at this checkpoint, including five warm-ups.
 
 ### Collaboration results
 
@@ -514,5 +515,256 @@ The approved $0.25 incremental allowance remains an estimate, not a measured
 AWS bill. The elapsed window was less than 45 minutes, including a stopped
 interval; no new recurring resource was added. Existing EBS and retained S3
 storage continue billing while hosts are stopped (previous planning estimate
-approximately $4.25/month, usage dependent). Milestone 16 remains IN PROGRESS;
-Milestone 17 is untouched.
+approximately $4.25/month, usage dependent). At this historical checkpoint
+Milestone 16 remained IN PROGRESS; the completed continuation is recorded below.
+
+## Approved twenty-minute continuation — terminal preparation
+
+The owner approved one new twenty-minute host window for only the remaining
+25 submissions: two Java and three Python batches, each with one warm-up and
+four measured jobs. The completed collaboration stages and first Java batch
+remain authoritative and must not be repeated. Checkpoint `c4fa299` passed
+[Actions run 36375766436](https://github.com/Ywrd10/PairForge/actions/runs/36375766436).
+
+Use `scripts/run-aws-load.ps1 -ApprovedTwentyMinuteContinuation` with the original
+private report as `-ResumeReport`, a new ignored report directory and Node 24.
+Run it manually in a visible PowerShell 7 terminal. Its first prompt pauses before
+any authentication/network call; leave it there and confirm visibility to the
+operator. No host may start before that confirmation. After startup/preflight,
+the operator writes the actual UTC start into the non-secret, ignored
+`.tmp/m16-aws-continuation-start-time.txt` and tells the owner to press Enter.
+
+Both passwords are entered through `Read-Host -AsSecureString`. The launcher
+verifies both account UUIDs through `/auth/me` while execution admission remains
+closed, then pauses again. Its temporary `authenticated.json` contains only a
+boolean and timestamp, never credentials. Open admission only after both approved
+accounts authenticate, then instruct the owner to type `RUN`. Tokens pass to the
+load process only through stdin and remain excluded from reports/files/logs.
+The authentication marker is removed in `finally`.
+
+The continuation keeps the existing workload and cooldowns, caps workload time
+at seven minutes, and reserves five minutes within the twenty-minute host window
+for verified shutdown. It refuses to start with less than six minutes of workload
+budget remaining. Operator startup/authentication deadlines and host shutdown
+still require active supervision; the harness cannot stop EC2 on its own.
+
+Preparation checks passed: all 35 harness tests including twenty-minute deadline
+boundaries, typecheck, lint, PowerShell syntax, and mocked launcher checks for
+both pauses and marker cleanup. These checks made no AWS/network requests or
+execution submissions. The repository and saved benchmark evidence were verified;
+no completed benchmark was rerun. The owner subsequently confirmed terminal
+visibility and authenticated both accounts; the actual continuation is recorded
+below. No terminal was launched on the owner's behalf.
+
+## Complete AWS measurements — 2026-09-28
+
+The [complete sanitized artifact](load-results/m16-aws-2026-09-28.json) preserves
+the nine original collaboration stages and first five Java job records exactly.
+Their equality with the partial artifact was checked before publishing. The
+original local baseline was also preserved. **No completed benchmark work was
+repeated.** PostgreSQL inspection verified exactly thirty distinct successful
+executions in the benchmark room, matched every saved queue/runner timing, and
+confirmed the original five rows unchanged.
+
+### Environment, timing and method
+
+The environment is the same two-host deployment recorded above: app
+`i-089a4dc88b34e6c56` (`t3a.medium`, two vCPUs, approximately 3.75 GiB guest RAM,
+30 GiB encrypted gp3) and worker `i-06befca753a936715` (`t3a.small`, two vCPUs,
+approximately 1.87 GiB guest RAM, 20 GiB encrypted gp3), in `us-east-1a`.
+Ubuntu/kernel, JVM/Docker/dependency versions, sandbox image IDs and app/worker
+JAR hashes remained unchanged and are recorded in the artifact. The Windows
+Ryzen 5 5600X/Node 24.19.0 generator used its normal internet path through
+CloudFront, rather than a cloud load-generator host. Worker concurrency and
+prefetch remained one; both instances retained Standard CPU-credit mode.
+
+Preflight verified the dedicated `pairforge` identity, exact hosts, private app
+routes, API/worker/dependency health, sandbox readiness, HTTPS/WSS, and worker
+PostgreSQL/RabbitMQ TLSv1.3 with certificate/hostname validation. Worker IMDS
+remained disabled. The execution allowlist retained only the two previously
+approved UUIDs. Anonymous execution was rejected with 401; anonymous WSS closed
+with 1008. Admission stayed closed until both approved accounts authenticated
+privately. Neither architecture, application binaries, schema, host sizes nor
+execution authorization changed.
+
+The original measurements ran 03:10:07–03:14:52 UTC. The new approved host window
+started at **13:17:06.370 UTC** after visible-terminal confirmation. The continuation
+ran **13:25:02.223–13:29:40.319 UTC**, approximately 278.10 seconds. It submitted only
+the remaining two Java batches and three Python batches: **25 new jobs**, five
+excluded warm-ups plus twenty measured jobs. The resumed report retains the
+original start time; `resumedAt` identifies the second measurement interval.
+The gap between windows is excluded from latency/throughput calculations.
+
+The workload, fixed stdout, deadlines and cooldowns remained as specified above:
+one warm-up and four measured jobs per batch; batch starts at least sixty seconds
+apart, ten-second request/document deadlines, 120-second terminal deadlines, and
+no uncertain-submission retries. Remaining work was capped at seven minutes with
+a five-minute shutdown reserve inside the twenty-minute host window. The complete
+report aggregates both measurement windows, not a continuous twenty-minute load.
+
+The first window used adapter checkpoint `476ad70`. The continuation used
+`c4fa299` plus the visible-terminal/twenty-minute deadline changes; the earlier
+timing-parser fix was already present. A subsequent session-freshness adjustment
+requires eight minutes of token validity for a seven-minute continuation instead
+of the full-run eleven-minute-forty-second guard. The running process had already
+loaded the earlier guard and passed it; this adjustment did not alter any
+measurement or workload. Its boundary cases are tested. Neither the parser fix
+nor these admission/deadline changes invalidate completed successful samples.
+
+### Collaboration: preserved completed results
+
+All **2,040 / 2,040 deliveries**, all nine stages and all nine reconnect-restoration
+checks passed. There were zero errors or unexpected disconnects. Each row combines
+three repetitions using one writer, a 1,024-byte document, nominal two updates/sec,
+five-second warm-up and twenty-second measurement. These are the original samples.
+
+| Connections | Delivered / expected | p50 ms | p95 ms | p99 ms | Maximum ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 | 240 / 240 | 49.76 | 68.22 | 78.03 | 89.92 |
+| 5 | 600 / 600 | 47.45 | 62.76 | 71.59 | 88.46 |
+| 10 | 1,200 / 1,200 | 47.84 | 72.09 | 93.83 | 152.64 |
+
+Reconnect observations remained 450.84–575.27 ms, including the intentional
+250 ms pause. Duplicate acknowledgement/broadcast observations were counted
+separately and did not inflate successful deliveries or latency samples.
+
+### Execution: complete repeated batches
+
+All **30 / 30 submissions** were accepted and succeeded: fifteen per language,
+including three excluded warm-ups per language. Both authenticated observers
+automatically received every terminal result; REST verified expected stdout and
+exit zero. There were **zero rejections, uncertain submissions, execution failures,
+execution timeouts or notification timeouts**. These workloads deliberately succeed;
+they do not replace the failure/security tests from previous milestones.
+
+| Language / metric | Samples | p50 ms | p95 ms | p99 ms | Maximum ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Java queue delay | 12 jobs | 3,377.40 | 9,651.92 | 9,651.92 | 9,651.92 |
+| Java runner duration | 12 jobs | 2,502 | 3,187 | 3,187 | 3,187 |
+| Java terminal-result latency | 24 observer deliveries | 6,691.37 | 13,024.36 | 13,024.52 | 13,024.52 |
+| Python queue delay | 12 jobs | 809.58 | 2,317.83 | 2,317.83 | 2,317.83 |
+| Python runner duration | 12 jobs | 626 | 661 | 661 | 661 |
+| Python terminal-result latency | 24 observer deliveries | 1,707.89 | 3,254.11 | 3,255.97 | 3,255.97 |
+
+Percentiles use nearest rank. Twelve measured jobs per language are insufficient
+for reliable tail estimates: queue/runner p95 and p99 select the maximum.
+Twenty-four terminal observations represent two observers of the same twelve
+jobs, not twenty-four independent executions. Terminal latency includes queueing,
+result persistence and delivery, whereas runner duration excludes queue wait and
+final cleanup. Queue delay grows within a burst because the worker is serial.
+
+| Batch | Measured jobs | Measured drain interval ms | Small-batch jobs/sec |
+| --- | ---: | ---: | ---: |
+| Java 1 (preserved original) | 4 | 13,369.08 | 0.2992 |
+| Java 2 | 4 | 11,073.84 | 0.3612 |
+| Java 3 | 4 | 10,930.94 | 0.3659 |
+| Python 1 | 4 | 3,692.79 | 1.0832 |
+| Python 2 | 4 | 3,504.87 | 1.1413 |
+| Python 3 | 4 | 3,484.77 | 1.1479 |
+
+Combined small-batch throughput is **0.3392 Java jobs/sec** and **1.1233 Python
+jobs/sec**, calculated as twelve measured jobs divided by the sum of that
+language's three measured drain intervals. Warm-ups, cooldowns and the gap between
+windows are excluded. These figures are **not sustained system capacity**.
+
+### Resource observations and comparison with local
+
+The combined artifact contains **194 samples** with zero collection errors:
+86 app and 108 worker. The continuation contributes 97 of them (43 app/54 worker).
+Every sampled readiness check passed; OOM and cleanup-failure counters remained
+zero. App queue observations peaked at three ready and one unacknowledged message
+across `execution.jobs` and `execution.events`. Worker queue fields are placeholders;
+only app samples measure queue depth.
+
+| Host | Maximum sampled CPU, combined / continuation | Minimum available RAM | Minimum available root disk |
+| --- | ---: | ---: | ---: |
+| App | 83% / 66% | 2,665.40 MiB | 23.17 GiB |
+| Worker | 65% / 65% | 1,212.35 MiB | 14.14 GiB |
+
+No health, OOM, cleanup, uncertain-submission, notification or capacity guard fired
+during the continuation. RAM stayed above 256 MiB; disk stayed above the greater
+of 2 GiB or 10%; CPU never reached the sustained-above-85%-for-sixty-seconds guard.
+The approved instance sizes were adequate for this bounded demo workload. No
+additional resources or resizing were required.
+
+Observers use a one-second `vmstat` interval followed by four seconds' sleep plus
+SSH/broker overhead, yielding roughly five-to-seven-second samples. Sampled
+maxima can miss short peaks; there is no continuous observation during the
+operator authentication pauses or gap between windows. Host UTC clocks were
+approximately fifty seconds ahead of the generator; correlate approximately
+using client `observedAt` and phase. Client-monotonic latency and single-database
+queue timing do not depend on cross-host clock subtraction. Existing permissions
+again denied `cloudwatch:GetMetricStatistics`; CPU-credit balances and possible
+credit throttling remain **unmeasured**, although Standard mode was verified.
+No monitoring service or IAM expansion was added.
+
+| Comparable bounded metric | Local baseline | AWS completed benchmark |
+| --- | ---: | ---: |
+| Ten-connection delivery p50 / p95 ms | 9.56 / 12.15 | 47.84 / 72.09 |
+| Java queue p50 / p95 ms | 3,720.66 / 10,796.25 | 3,377.40 / 9,651.92 |
+| Python queue p50 / p95 ms | 2,407.34 / 7,161.08 | 809.58 / 2,317.83 |
+| Java runner p50 / p95 ms | 2,870 / 3,061 | 2,502 / 3,187 |
+| Python runner p50 / p95 ms | 1,692 / 1,797 | 626 / 661 |
+| Java terminal p50 / p95 ms | 7,290.62 / 14,396.57 | 6,691.37 / 13,024.36 |
+| Python terminal p50 / p95 ms | 4,786.95 / 9,619.51 | 1,707.89 / 3,254.11 |
+| Java small-batch jobs/sec | 0.2787 | 0.3392 |
+| Python small-batch jobs/sec | 0.4178 | 1.1233 |
+
+The identical workload permits descriptive comparison, not attribution to one
+component. Local loopback/Windows-host JVMs/Docker Desktop WSL2 differ from native
+Linux hosts and an external CloudFront path. The desktop is not a dedicated idle
+generator; ordinary activity and inspection add overhead. Collaboration excludes
+Monaco rendering/debounce. Editing and execution were measured separately;
+neither environment establishes saturation, simultaneous mixed-load capacity,
+large-scale production performance, or a latency guarantee.
+
+### Final cleanup, backup and shutdown
+
+After the last batch, admission was closed. PostgreSQL had zero QUEUED/RUNNING
+executions globally; both execution queues had zero ready/unacknowledged messages.
+The worker stopped with zero owned sandbox containers and zero job workspaces.
+Remote observers ended, and no local Node benchmark/JVM/tunnel process remained.
+The visible PowerShell shell may remain open for the owner; its launcher exited
+and removed the non-secret authentication marker.
+
+The backup service returned success/exit zero. The existing bucket's new
+CMS-encrypted ciphertext also uses S3 AES256 encryption. Downloaded bytes matched
+both SHA-256 metadata and the S3 checksum, and the seven-day lifecycle was verified:
+
+- Bucket: `pairforge-298984481596-us-east-1-backups`
+- Key: `postgres/2026-09-28/133318-850ae5cb2d5d4d98adfa00e6db62d3d2.dump.cms`
+- Size: 18,252 bytes
+- SHA-256: `52f1a80ed9d04a8834d1363759c6408b758f2c0e00be1e4df0805c43bd070eba`
+
+This verifies fresh backup upload/integrity; the Milestone 15 restore drill remains
+the restore evidence. This new backup was not separately restored. API/Caddy,
+backup timer and dependency containers then stopped. Both exact EC2 hosts were
+independently verified **stopped with no public IP** by **13:34:32.683 UTC**:
+**17 minutes 26.313 seconds**, within the approved twenty-minute operating window.
+The final artifact records the shutdown/inventory/backup checks.
+
+Before/after permitted inventories match: two original instances, encrypted
+30/20 GiB gp3 volumes, zero Elastic IPs, and app local/S3 routes without a public
+default route. No infrastructure creation or resizing command was issued. As with
+the first window, denied optional inventory/metric permissions prevent an
+exhaustive account-wide billing/CPU-credit claim.
+
+Using the previously approved planning rates ($0.0376/hour app, $0.0188/hour
+worker), the full 17m26s window estimates approximately **$0.0164 compute**,
+before requests/storage/traffic; this is an estimate, not the actual AWS bill.
+Existing EBS and retained S3 storage continue billing while stopped (previous
+planning estimate approximately $4.25/month plus usage). No new recurring
+resource was introduced. Restart remains manual; Milestone 17 is untouched.
+
+### Final verification
+
+The documentation checkpoint `c4fa299` passed
+[Actions run 36375766436](https://github.com/Ywrd10/PairForge/actions/runs/36375766436)
+before this continuation. Relevant final checks pass all 35 focused harness tests,
+frontend lint/typecheck, PowerShell syntax, and mocked visible-terminal/admission
+gates with authentication-marker cleanup. Artifact assertions verify complete
+counts, unchanged completed work, durable timings, aggregate statistics and
+absence of credentials/private correlation IDs. Long benchmarks and unrelated
+local suites were not rerun. The final pushed candidate is also subject to the
+existing required Java, frontend, harness and browser workflow/report gates;
+its exact Actions result is reported with the final commit.

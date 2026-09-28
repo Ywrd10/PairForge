@@ -9,12 +9,13 @@ Work on one milestone at a time.
 
 Do not begin the next major milestone automatically.
 
-Current milestone: Milestone 16 (IN PROGRESS). Milestone 15 is DONE. The bounded
-local load baseline, harness tests and candidate CI verification are complete.
-The approved AWS benchmark is partially complete: all nine collaboration stages
-and five Java submissions passed; 25 execution submissions remain. The hosts
-are stopped. A new bounded operating window and private authentication are
-required before continuing. Do not restart AWS or begin Milestone 17 automatically.
+Milestone 16 is DONE. The bounded local baseline and separately approved AWS
+benchmark are complete: 2,040/2,040 collaboration deliveries and nine reconnect
+checks in each environment, plus all thirty executions in each environment.
+Completed work was preserved without repetition. AWS queues and sandboxes are
+clean, the final encrypted backup is verified, and both hosts are stopped.
+Milestone 17 remains TODO. Do not restart AWS or begin the next milestone
+automatically.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1661,7 +1662,7 @@ drained, services stopped and both EC2 hosts were independently verified stopped
 See `docs/MILESTONE_15_ACCEPTANCE.md` and `docs/DEPLOYMENT.md` for exact evidence,
 sampled capacity, prior test results and limitations. CPU-credit metrics were
 unavailable to the deployer; no sustained-load or continuous peak measurement is
-claimed. Milestone 16 remains TODO.
+claimed. At the Milestone 15 checkpoint, Milestone 16 remained TODO.
 
 Post-completion review (2026-09-27): corrected the worker-role helper's missing
 SQL-file reference and added a release-artifact regression check. Frontend's
@@ -1674,7 +1675,7 @@ remains the completion evidence. See `docs/DEPLOYMENT.md` for exact limitations.
 
 ## Milestone 16 — Load Testing
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
 Measure separately:
 
@@ -1719,17 +1720,45 @@ without rerunning any work. The approved seven-minute continuation did not start
 the private login terminal was unavailable and the operating-window guard left
 insufficient time. No additional jobs were submitted.
 
-Remaining: obtain approval for a new bounded window, complete only the other
-two Java and three Python batches (25 submissions including five warm-ups),
-document their results and capacity observations, then repeat verified drain,
-backup and shutdown. Preserve the completed local and AWS measurements. Run
-`36374218145` passed Java but failed one frontend
+The owner subsequently approved one new twenty-minute operating window. The
+visible-terminal/authentication gates were tested before startup; admission
+remained closed until both approved accounts authenticated privately. Only the
+remaining two Java and three Python batches ran: 25 new submissions including
+five warm-ups, bringing the complete cloud benchmark to exactly thirty accepted,
+successful jobs. Both observers received all terminal results; no rejections,
+uncertain submissions, execution/notification failures or timeouts occurred.
+The original collaboration stages and five Java jobs were verified unchanged.
+Complete queue/runner/terminal measurements and small-batch throughput are in
+`docs/LOAD_TESTING.md` and `docs/load-results/m16-aws-2026-09-28.json`.
+
+Combined AWS sampling retained 194 observations with zero collection errors,
+readiness loss, OOM or cleanup failures. Sampled CPU peaked at 83% app / 65%
+worker; minimum available RAM was 2,665.40 / 1,212.35 MiB and disk 23.17 / 14.14
+GiB. No configured guard fired and no upgrade was required for the bounded
+workload. Standard credits were verified; credit balances remain unmeasured
+under existing IAM permissions. These are sampled observations and small
+repeated batches, not sustained production-capacity claims.
+
+Final durable inspection verified thirty distinct successful jobs and zero
+QUEUED/RUNNING executions globally. Both queues drained; admission closed;
+worker/sandbox/workspace and observer cleanup passed. The fresh encrypted backup
+passed checksum verification and retains the seven-day lifecycle. Both original
+hosts were independently verified stopped by 13:34:32.683 UTC, 17m26.313s after
+startup, inside the approved twenty-minute window. Permitted before/after
+inventories and private app routes matched; no resources were added or resized.
+The original local measurements remain valid and were not rerun.
+
+Earlier CI run `36374218145` passed Java but failed one frontend
 page test; dependent load/build/browser steps did not run. Its synchronization
 fix preserves all assertions. Replacement candidate `bdf5c54` passed Actions run
 `36375165081`: 365 Java, 70 frontend unit, 35 harness and 12 browser tests, with
 zero failures, errors or skips. Keep those gates green for the final candidate.
-See `docs/LOAD_TESTING.md` for partial results, fixes and operational evidence.
-Milestone 16 remains IN PROGRESS; the approved cloud checkpoint is not complete.
+Documentation checkpoint `c4fa299` also passed run `36375766436` before the
+continuation. Final relevant checks pass 35 harness tests, lint/typecheck,
+PowerShell syntax and mocked authentication gates/marker cleanup. The final
+pushed candidate uses the same mandatory workflow/report gates. See
+`docs/LOAD_TESTING.md` for complete measurements, fixes, verification and
+operational limitations. Milestone 17 remains untouched.
 
 ---
 

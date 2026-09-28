@@ -8,6 +8,8 @@ const sample = (role: 'App' | 'Worker' = 'App') => hostSample({ role, cpuPercent
 it('rejects expired/malformed credentials without echoing private input',()=>{
   const sessions=[{accessToken:'secret',expiresAt:new Date(900000).toISOString()},{accessToken:'other',expiresAt:new Date(900000).toISOString()}]
   expect(privateSessions(JSON.stringify(sessions),0)).toHaveLength(2)
+  expect(privateSessions(JSON.stringify(sessions),420000,480000)).toHaveLength(2)
+  expect(()=>privateSessions(JSON.stringify(sessions),420001,480000)).toThrow('fresh private sessions')
   for(const input of ['secret malformed',JSON.stringify([{...sessions[0],expiresAt:'invalid'},sessions[1]]),JSON.stringify(sessions)]) {
     try {privateSessions(input,300000);throw new Error('Should fail')}catch(e){expect((e as Error).message).toBe('Two fresh private sessions required; input is not logged')}
   }
@@ -36,6 +38,12 @@ it('resumes only verified completed work without resetting the original deadline
   expect(resumeBudget(checkpoint,1800000,0)).toBe(420000)
   expect(()=>resumeBudget(checkpoint,2400000,0)).toThrow('operating window')
   expect(()=>resumeBudget(checkpoint,1800000,NaN)).toThrow('operating window')
+  // Fresh twenty-minute window, preserving seven-minute workload and shutdown reserve.
+  expect(resumeBudget(checkpoint,300000,0,20)).toBe(420000)
+  expect(resumeBudget(checkpoint,540000,0,20)).toBe(360000)
+  expect(()=>resumeBudget(checkpoint,540001,0,20)).toThrow('operating window')
+  expect(()=>resumeBudget(checkpoint,300000,undefined,20)).toThrow('Explicit approved')
+  expect(()=>resumeBudget(checkpoint,300000,0,21 as 20)).toThrow('Explicit approved')
 })
 it('rejects malformed samples rather than substituting zero', () => {
   for (const change of [{cpuPercent:NaN},{healthy:'UP'},{diskTotalBytes:0},{ready:-1},{role:'other'}]) expect(()=>hostSample({...sample(),...change})).toThrow()

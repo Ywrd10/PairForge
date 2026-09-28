@@ -9,8 +9,10 @@ import { configureRemoteTarget, json } from './transport.ts'
 import { collaboration } from './collaboration.ts'
 import { execution } from './execution.ts'
 
-const [target,pwsh,destination,resumePath,approvedWindowStart] = process.argv.slice(2)
-if (!target || !pwsh || !destination || ![5,6,7].includes(process.argv.length)) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
+const [target,pwsh,destination,resumePath,approvedWindowStart,windowMinutes] = process.argv.slice(2)
+if (!target || !pwsh || !destination || ![5,6,7,8].includes(process.argv.length)) throw new Error('Explicit HTTPS target, PowerShell executable and report directory required')
+if (windowMinutes !== undefined && windowMinutes !== '20') throw new Error('Only the approved twenty-minute continuation is supported')
+if (windowMinutes && (!resumePath || !approvedWindowStart)) throw new Error('Continuation requires checkpoint and window start')
 configureRemoteTarget(target)
 const settings = remoteConfig(JSON.parse(await readFile(new URL('./local.json',import.meta.url),'utf8')))
 const directory = resolve(destination)
@@ -20,14 +22,16 @@ const inputTimer = setTimeout(()=>{ console.error('Private authentication input 
 let input=''
 for await (const chunk of process.stdin) { input+=String(chunk); if(input.length>32768) throw new Error('Private input bound exceeded') }
 clearTimeout(inputTimer)
-const sessions = privateSessions(input,Date.now()); input=''
+// The shorter continuation requires eight minutes of session validity for its
+// seven-minute maximum, including the operator's admission pause after login.
+const sessions = privateSessions(input,Date.now(),windowMinutes === '20' ? 480000 : 700000); input=''
 const previous=resumePath ? JSON.parse(await readFile(resolve(resumePath),'utf8')) as Record<string,unknown> : undefined
-const remaining=previous ? resumeBudget(previous,Date.now(),approvedWindowStart?Date.parse(approvedWindowStart):undefined) : 900000
+const remaining=previous ? resumeBudget(previous,Date.now(),approvedWindowStart?Date.parse(approvedWindowStart):undefined,windowMinutes === '20' ? 20 : 45) : 900000
 const timeout = setTimeout(()=>abort.abort(),Math.min(remaining,...sessions.map(s=>Date.parse(s.expiresAt)-Date.now()-5000)))
 const interrupt=()=>abort.abort();process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt)
 const report: Record<string,unknown> = { started:new Date().toISOString(), settings, target, environment:{kind:'AWS two-host deployment',generatorOS:platform(),generatorRelease:release(),generatorCPU:cpus()[0]?.model,node:process.version},collaboration:[],execution:[],passed:false }
 if(previous){Object.assign(report,previous,{passed:false,resumedAt:new Date().toISOString(),finished:undefined,failure:undefined});}
-if(approvedWindowStart){report.approvedContinuation={maximumSeconds:420,operatingWindowStart:approvedWindowStart,budgetMs:remaining};}
+if(approvedWindowStart){report.approvedContinuation={maximumSeconds:420,operatingWindowStart:approvedWindowStart,operatingWindowMinutes:windowMinutes === '20' ? 20 : 45,budgetMs:remaining};}
 const collab=report.collaboration as unknown[], executions=report.execution as unknown[]
 let observer: ReturnType<typeof observeHosts> | undefined, phase='authentication'
 const save=()=>writeFile(resolve(directory,'report.json'),JSON.stringify(report,null,2)+'\n')
