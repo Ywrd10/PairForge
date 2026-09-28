@@ -16,14 +16,15 @@ Completed work was preserved without repetition. AWS queues and sandboxes are
 clean, the final encrypted backup is verified, and both hosts are stopped.
 Milestone 17 (Portfolio Polish) is DONE. The README, architecture visualization,
 setup/testing guides, measured evidence and limitations are ready for review.
-Milestone 18 (Beta Testing) is IN PROGRESS. Two external testers' reported passes
-and the approved beta window's actual evidence are recorded in
-`docs/BETA_TESTING.md`. The final database contains only two Java runs from
-Tester B, contradicting reported Python/Tester A completion; the evidence gap
-must be resolved before DONE. Temporary grants are removed, admission closed,
-queues/sandboxes clean, encrypted backup verified, and both AWS hosts stopped.
-Any retest requires fresh window approval. Do not repeat completed Milestone 16
-benchmarks or Milestone 17 documentation work.
+Milestone 18 (Beta Testing) is DONE. The owner personally coordinated and observed
+two distinct external testers using their own accounts and explicitly accepted
+the manual workflow results in `docs/BETA_TESTING.md`. Retained backend evidence
+is incomplete for some manual interactions; missing rows are not independently
+corroborated. This is an accepted evidence limitation. Temporary grants are
+removed, admission closed, queues/sandboxes clean, encrypted backup verified,
+and both AWS hosts stopped.
+No AWS restart or beta rerun is required. Do not repeat completed Milestone 16
+benchmarks or Milestone 17 documentation work or begin another milestone.
 Keep the approximately three-week target focused on the core workflow and reserve
 time for integration/deployment; beta recruitment and deferred technologies must
 not expand the critical path.
@@ -1825,7 +1826,7 @@ with the final commit. Milestone 18 remains untouched.
 
 ## Milestone 18 — Beta Testing
 
-**Status: IN PROGRESS**
+**Status: DONE**
 
 Goal:
 
@@ -1864,10 +1865,11 @@ testers using Chrome on PCs and reported all requested checks passed, with no
 material tester-blocking issues. Actual evidence verifies independent account
 registration/login, shared membership, and Tester B's Java compilation error
 and successful execution. PostgreSQL increased from 48 to 50 executions; no
-Python run, Tester A submission or Tester A room creation was recorded, despite
-the follow-up completion confirmation. `BETA-EVIDENCE-01` remains an unresolved
-completion blocker, not a proven product defect. Do not mark missing cases
-verified or claim fully verified completed-session counts.
+Python run, Tester A submission or Tester A room creation was present in the
+inspected retained records, despite the manual completion report. The operator
+initially tracked `BETA-EVIDENCE-01` as a completion blocker. Its final disposition
+is the explicitly accepted evidence limitation described below; missing rows are
+not independently corroborated and session counts were not separately tracked.
 
 The operation took 37.51 minutes including independent stop verification, within
 the approved 45-minute window. Both individually approved temporary grants were
@@ -1881,10 +1883,31 @@ process/cleanup evidence confirmed a stopped worker. This status limitation is
 documented rather than hidden. No product-code fix or benchmark rerun occurred.
 
 Documentation checks passed for links/anchors, fences, privacy patterns, scoped
-changes, unchanged Milestone 16/17 sections and whitespace. Normal CI is required
-on the evidence-checkpoint push. Optional real screenshots remain unsupplied.
-Milestone 18 stays IN PROGRESS until the reported/durable evidence discrepancy
-is resolved and final completion gates pass; AWS remains stopped.
+changes, unchanged Milestone 16/17 sections and whitespace. Evidence checkpoint
+`f61df0f` passed [CI run 36469255477](https://github.com/Ywrd10/PairForge/actions/runs/36469255477):
+365 Java, 70 frontend unit, 35 harness and 12 browser tests; zero failures, errors
+or skips. Optional real screenshots remain unsupplied.
+
+Final manual acceptance: the owner explicitly confirmed personally coordinating
+and observing two different external testers using their own accounts. Both
+passed independent registration/login, the create/join and invitation workflow,
+collaboration, Java/Python execution with expected stdout, reload restoration of
+source/language, and automatic execution results without Refresh Status. The
+intentional Python runtime error was surfaced correctly. No material product
+bugs were reported and no product fixes were required.
+
+The owner accepted this direct manual observation and tester feedback as the
+human beta acceptance evidence. `BETA-EVIDENCE-01` is closed as an evidence
+limitation: retained backend records are incomplete for some manual interactions
+and do not provide a complete beta audit trail. No missing row is claimed
+independently verified and no cause for its absence is asserted. The application
+persistence contract is unchanged. See [BETA_TESTING.md](BETA_TESTING.md) for the
+separate manual results, retained records and operational limitations.
+
+Milestone 18 is DONE with the explicit manual acceptance, passing CI and relevant
+documentation checks, and verified grant removal/drain/cleanup/backup/shutdown.
+This final closeout changes documentation only; no AWS operation, beta rerun,
+benchmark rerun or product feature was introduced. AWS remains stopped.
 
 Completion requires actual external-user testing and genuine feedback, material
 issues fixed or explicitly documented and acknowledged, relevant regression

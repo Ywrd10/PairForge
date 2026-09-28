@@ -1,12 +1,13 @@
 # Milestone 18 — Beta testing
 
-**Status: IN PROGRESS — beta window closed safely; reported completion conflicts with durable evidence.**
+**Status: DONE — manual beta acceptance confirmed; cleanup, backup and shutdown verified.**
 
 This beta validates the existing workflow with people outside the developer's
 own accounts. It is a supervised usability session, not another load benchmark.
-Two external testers' feedback has been relayed by the owner. Completion is
-being reconciled with durable execution evidence; earlier acceptance tests and
-benchmarks are separate evidence.
+The owner personally coordinated and observed two external testers using their
+own accounts and explicitly accepted those observations as the human beta
+acceptance evidence. Retained backend records provide separate, incomplete
+corroboration; earlier acceptance tests and benchmarks are separate evidence.
 
 ## For testers: about 10–15 minutes
 
@@ -267,14 +268,17 @@ unrelated features and large UI work are outside this milestone.
 
 ## Actual results — 2026-09-28
 
-### Participants and genuine feedback
+### Manual beta acceptance evidence
 
-The owner confirmed that **two distinct external users** independently used
-newly registered accounts. This participant count is based on the owner's
-confirmation, not inferred from account count alone. Both reported **Chrome on
-a PC**; operating systems and browser versions were not supplied. Completed
-session counts and individual Run-click counts were not independently tracked.
-Do not count earlier acceptance sessions or automation as additional beta users.
+The owner confirmed that they **personally coordinated and observed two distinct
+external testers using their own accounts**, and that all required tester-facing
+checks passed. This direct manual observation, together with the testers'
+reports, is the accepted evidence for the human beta-testing portion of
+Milestone 18. The participant count is two, not inferred from database account
+count alone. Both reported **Chrome on a PC**; operating systems and browser
+versions were not supplied. Session counts and individual Run-click counts were
+not independently tracked. Earlier acceptance sessions and automation are not
+additional beta users.
 
 The initial feedback relayed by the owner was:
 
@@ -282,61 +286,69 @@ The initial feedback relayed by the owner was:
 > pass, invitation:pass, edit both directions: pass Java/Python stdout/err: pass.
 > Everything passed, no errors seen.
 
-In a follow-up, the owner reported these additional checks as complete:
+The owner's final explicit manual acceptance confirmation records:
 
-| Tester-reported check | Tester A | Tester B |
+| Manually confirmed check | Tester A | Tester B |
 | --- | --- | --- |
 | Independent registration/login | PASS | PASS |
-| Create/join, invitation and edits in both directions | PASS | PASS |
+| Room admission and invitation workflow | Created a room: PASS | Joined the shared room: PASS |
+| Collaborative edits in both directions | PASS | PASS |
 | Working Java execution | PASS | PASS |
-| Working Python execution and expected stdout | PASS | PASS |
+| Working Python execution | PASS | PASS |
+| Expected stdout appeared | PASS | PASS |
 | Reload restored source/language | PASS | PASS |
 | Both browsers received results without Refresh Status | PASS | PASS |
 
-The owner also reported that one tester ran `print(1 / 0)` and received the
-expected runtime error, then affirmed the actions were completed on the deployed
-CloudFront URL. These are preserved as **reported passes**, with the evidence
-discrepancy below; they are not all independently verified passes. No material
-tester-blocking product issue was reported. No product fix was made. This small,
-relayed beta does not establish broad adoption or a measured defect rate.
+The owner also confirmed that one tester ran `print(1 / 0)` and that the runtime
+error was surfaced correctly to the user. The actions were confirmed on the
+deployed CloudFront URL. These passes are attributed to direct owner observation
+and tester reports; the agent did not independently observe every browser action
+or corroborate every execution through retained backend records. No material
+product bugs were reported by the two external testers. No product fixes were
+required or made. This small beta does not establish broad adoption, a measured
+defect rate or production capacity.
 
-### Durable evidence and unresolved completion gap
+### Retained backend evidence and its limitation
 
 Startup PostgreSQL contained **48** pre-existing terminal executions. After
-admission closed and accepted work drained, it contained **50**, with exactly
-**two beta submissions**, both belonging to Tester B:
+admission closed and accepted work drained, the inspected database contained
+**50**, including **two retained beta execution rows**, both belonging to Tester
+B. This retained-row count is not a complete count of manually observed actions:
 
 | Language | Durable outcome | Exit code | Runner duration | Observation |
 | --- | --- | --- | --- | --- |
 | Java | FAILED / COMPILATION_ERROR | 1 | 1,755 ms | Compiler error handled as a terminal result |
 | Java | SUCCEEDED | 0 | 2,524 ms | Successful completion; stdout differed from the guide's exact example string |
 
-Both beta users existed and had membership in the shared room. Only Tester B
-had a created room. Safe API counters recorded two successful registrations,
-two successful logins, one successful join, one room creation and two accepted
-execution submissions. Two authenticated WebSocket connections were observed.
-Counters are process-local; PostgreSQL is the durable execution evidence.
+Both beta users existed and had membership in the shared room. The inspected
+room records showed a created room only for Tester B. Safe API counters recorded
+two successful registrations, two successful logins, one successful join, one
+room creation and two accepted execution submissions. Two authenticated
+WebSocket connections were observed.
+Counters are process-local; the database snapshot corroborates only the retained
+records described here.
 
 **No Python execution, Tester A execution, or Tester A room creation was present
-in the final deployed database.** Three metadata lookups, including the final
-post-admission-close snapshot, showed the same two Java rows. The operator asked
-for the missing cases and for clarification, without requesting credentials or
-private code. The owner confirmed completion, but that did not resolve the
-recorded mismatch. A different successful example is not inherently a defect;
-its expected stdout was not supplied. Live editing, reload/restoration and
-browser notification delivery remain tester-reported rather than inferred from
-membership or connection counts.
+in the inspected final database.** Repeated metadata lookups, including the final
+post-admission-close snapshot, showed the same two Java rows. Missing rows were
+not recovered or independently corroborated. The cause of the incomplete
+retention/correlation was not established; no deletion, data-loss explanation or
+complete backend audit trail is claimed. A different successful example is not
+inherently a defect; its exact stdout was not retained in this evidence record.
+Live editing, reload/restoration and browser notification acceptance come from
+the manual observation above, not inferred membership or connection counts.
 
-Record `BETA-EVIDENCE-01` as a **completion blocker**, not a demonstrated product
-bug: expected evidence was four successful Java/Python runs across the two beta
-accounts plus the assigned compiler/runtime errors; actual evidence was only
-Tester B's compiler error and Java success. Reproduction is repeated read-only
-execution/room metadata queries after testing; affected component is acceptance
-evidence reconciliation. Resolving it requires trustworthy correlation with the
-reported actions or a separately approved bounded retest. Do not fabricate the
-missing rows, label them verified, retry uncertain submissions, reopen AWS, or
-repeat Milestone 16 benchmarks. No additional account was created to test denial;
-this window's unapproved-account rejection check was **not performed**.
+`BETA-EVIDENCE-01` is closed as an **explicitly accepted evidence limitation**,
+not a demonstrated product bug or failed human acceptance case. The owner
+instructed that their direct observation and tester-reported results satisfy the
+human beta acceptance gate, and that the retained backend evidence is not a
+complete audit trail of every manual beta interaction. This acceptance decision
+does not change the application's persistence contract in
+[ARCHITECTURE.md](ARCHITECTURE.md#4-durable-data-model), fabricate missing rows or
+claim independent backend verification of them. No AWS restart, beta rerun or
+product change is required for this documentation closeout. No additional account
+was created to test denial; this window's optional unapproved-account rejection
+check was **not performed**.
 
 ### Deployment and operating window
 
@@ -429,20 +441,27 @@ plus variable storage/requests); the existing CloudFront/network configuration
 remains. Daily backups do not run while hosts are stopped, and S3 objects may
 expire after seven days; the verified owner-controlled encrypted copy is separate.
 
-### Final checks and remaining work
+### Final checks and closeout
 
 Only this guide and the roadmap changed; no product, infrastructure, dependencies
 or workflow code changed. Documentation checks cover relative links/anchors,
 Markdown fences, whitespace, private-data patterns, scoped file changes and
 unchanged Milestone 16/17 evidence. No new code regression test is appropriate
-for these documentation edits, and completed benchmarks were not rerun. The
-normal CI workflow runs on the evidence-checkpoint push; report its actual result
-with the commit, without substituting it for human acceptance evidence.
+for these documentation edits, and completed benchmarks and beta tests were not
+rerun. Evidence checkpoint `f61df0f` passed
+[CI run 36469255477](https://github.com/Ywrd10/PairForge/actions/runs/36469255477):
+365 Java, 70 frontend unit, 35 harness and 12 browser tests, with zero failures,
+errors or skips. These are that checkpoint's verified results, not a claim that
+the suites were manually rerun for the final documentation edits. The existing
+workflow starts automatically on the final closeout push; its actual status is
+reported separately. Automated CI does not replace the manual beta evidence.
 
-Milestone 18 remains **IN PROGRESS** because `BETA-EVIDENCE-01` is unresolved.
-The genuine two-person report is preserved, but fully verified completed sessions
-and missing execution/room cases are not claimed. Any necessary retest requires
-fresh window approval; AWS stays stopped. Optional final screenshots remain the
+Milestone 18 is **DONE** based on the owner's direct manual acceptance of the
+two external testers' workflow, no reported material product bugs, passing CI
+and documentation checks, and previously verified cleanup/backup/shutdown.
+Incomplete retained evidence remains documented; no missing backend rows are
+claimed verified. AWS stays stopped and no deployment operation was performed
+during this documentation-only closeout. Optional final screenshots remain the
 three real views in [SCREENSHOTS.md](SCREENSHOTS.md): synchronized Monaco views,
 a successful execution with matching source/output, and dashboard/create/join
 with empty invitation fields. No image was supplied or fabricated. Capture from
@@ -450,10 +469,11 @@ the final real UI and redact personal data as the screenshot guide requires.
 
 ## Completion gate
 
-Milestone 18 stays **IN PROGRESS** until external users have actually tested the
-core workflow, genuine feedback is recorded, and material issues are fixed or
-explicitly documented and acknowledged. Run relevant changed-code checks and the
-final normal [CI gates](TESTING.md), verify documentation and secret hygiene,
-and require verified drain/cleanup/backup/stopped-host evidence if AWS ran.
-Record any missing or failed case honestly before updating [ROADMAP.md](ROADMAP.md).
-No Milestone 19 is proposed.
+The completion gate is satisfied: the owner directly observed two external users
+complete the core workflow and explicitly accepted the manual evidence; genuine
+feedback is recorded; no material product fixes were required; the normal
+[CI gates](TESTING.md) passed; and drain, cleanup, backup and stopped hosts were
+verified. Documentation and repository consistency checks cover this final edit.
+The retained-evidence limitation and optional check not performed remain explicit
+in the record. [ROADMAP.md](ROADMAP.md) marks Milestone 18 DONE. No new milestone
+is proposed.
