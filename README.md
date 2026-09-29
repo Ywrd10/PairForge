@@ -1,32 +1,27 @@
 # PairForge
 
-PairForge is a real-time collaborative coding platform with a Java/Spring Boot
-backend and a React/TypeScript/Monaco frontend. Authenticated users join coding
-rooms by invitation, edit a shared document, and run Java or Python asynchronously
-in constrained disposable Docker containers. The system has been deployed and
-tested on AWS with separate application and execution-worker hosts.
+PairForge is a real-time collaborative coding and code-execution platform built
+with Java/Spring Boot and React/TypeScript. Authenticated users join rooms by
+invitation, edit together through WebSockets, and execute Java or Python
+asynchronously through a RabbitMQ-backed worker that compiles and runs submissions
+inside constrained disposable Docker containers.
+
+PostgreSQL stores durable application state; Redis holds ephemeral collaborative
+state. A separate worker isolates submitted-code execution from the API.
+PairForge was deployed on AWS and validated through automated tests, bounded load
+testing, encrypted backup/restore verification, and external beta testing.
 
 [Local setup](docs/LOCAL_DEVELOPMENT.md) · [Architecture](docs/ARCHITECTURE.md) ·
 [Testing](docs/TESTING.md) · [Measurements](docs/LOAD_TESTING.md#complete-aws-measurements--2026-09-28) ·
 [Deployment](docs/DEPLOYMENT.md)
 
-## Engineering features
+## Why PairForge
 
-- **Authorized collaboration:** JWT authentication, invitation-based room admission,
-  and server-side membership checks for REST requests, WebSocket sends and subscriptions.
-- **Shared editor state:** versioned full-document updates in Redis, a 24-hour
-  inactivity TTL, explicit resets after state loss, and manual reconnect with draft recovery.
-- **Durable asynchronous execution:** PostgreSQL snapshots/history, RabbitMQ jobs
-  and events, publisher confirms, manual acknowledgements and idempotent processing.
-  Duplicate delivery never reruns a completed execution.
-- **Separate execution boundary:** a worker with restricted database permissions
-  orchestrates constrained Java/Python containers; it reconciles interrupted work
-  and cleans up containers and source workspaces.
-- **Bounded admission:** per-user execution rate limits, an outstanding-job limit,
-  and a backend-enforced account allowlist in the deployed demo.
-- **Operational evidence:** readiness/liveness, structured logs, private
-  Micrometer/Prometheus metrics, real-container CI, encrypted backups, a verified
-  restore drill and documented startup/shutdown procedures.
+The focus is the backend behavior behind a shared editor: authorization on every
+real-time interaction, asynchronous jobs that survive duplicate delivery, bounded
+code execution, and recovery when dependencies or workers fail. One modular API
+and one execution worker keep these tradeoffs small enough to test, measure and
+explain.
 
 ## Architecture
 
@@ -48,7 +43,68 @@ flowchart TB
     Events -->|"state notifications"| API
 ```
 
-### Execution pipeline
+## Measured results
+
+AWS results represent **bounded portfolio/demo workloads, not sustained production
+capacity**. Measurements were taken through CloudFront from
+a desktop load generator. Collaboration and execution were measured separately
+on the existing `t3a.medium` app host and `t3a.small` worker host.
+
+| Measurement | Verified result |
+| --- | --- |
+| Collaboration workload | 2, 5 and 10 connections; three repetitions per stage |
+| Expected update deliveries | **2,040 / 2,040** |
+| Reconnect restoration | **9 / 9 passed** |
+| Unexpected collaboration errors / disconnects | **0 / 0** |
+| Ten-connection delivery latency | **47.84 ms p50 / 72.09 ms p95** |
+| Execution submissions | **30 / 30 succeeded**, including six warm-ups |
+| Small-batch throughput | **Java 0.339 jobs/sec; Python 1.123 jobs/sec** |
+| Automated tests | **483 passed**, zero failures/errors/skips |
+| External beta testers | **2** |
+
+Both authenticated observers received every terminal execution result. Each
+language had twelve measured jobs across three batches; the worker processed
+one job at a time. Throughput excludes warm-ups and cooldowns and **does not
+establish sustained system capacity**.
+
+Two external testers completed registration/login, room admission, collaboration,
+Java/Python execution, error handling and reload/reconnect checks on Chrome/PC.
+This beta acceptance is based on owner-observed tester feedback. Retained backend
+evidence is incomplete for some manual interactions; the [beta report](docs/BETA_TESTING.md#manual-beta-acceptance-evidence)
+distinguishes those sources. No material product bugs were reported. Two testers
+do not establish broad adoption or comprehensive browser coverage.
+
+| Host | Peak sampled CPU | Minimum available RAM, rounded |
+| --- | ---: | ---: |
+| App | 83% | 2,665 MiB |
+| Worker | 65% | 1,212 MiB |
+
+Samples can miss short peaks; CPU-credit balances were unavailable under the
+existing IAM permissions. These measurements exclude Monaco rendering and do
+not establish a maximum connection count or large-scale performance guarantee.
+The [full methodology and local/AWS comparison](docs/LOAD_TESTING.md) and
+[sanitized AWS artifact](docs/load-results/m16-aws-2026-09-28.json) preserve the
+individual timings, interruptions, environment and cleanup evidence.
+
+## Key features
+
+- **Authorized collaboration:** JWT authentication, invitation-based room admission,
+  and server-side membership checks for REST requests, WebSocket sends and subscriptions.
+- **Shared editor state:** versioned full-document updates in Redis, a 24-hour
+  inactivity TTL, explicit resets after state loss, and manual reconnect with draft recovery.
+- **Durable asynchronous execution:** PostgreSQL snapshots/history, RabbitMQ jobs
+  and events, publisher confirms, manual acknowledgements and idempotent processing.
+  Duplicate delivery never reruns a completed execution.
+- **Separate execution boundary:** a worker with restricted database permissions
+  orchestrates constrained Java/Python containers; it reconciles interrupted work
+  and cleans up containers and source workspaces.
+- **Bounded admission:** per-user execution rate limits, an outstanding-job limit,
+  and a backend-enforced account allowlist in the deployed demo.
+- **Operational evidence:** readiness/liveness, structured logs, private
+  Micrometer/Prometheus metrics, real-container CI, encrypted backups, a verified
+  restore drill and documented startup/shutdown procedures.
+
+## Execution pipeline
 
 1. **Submit → persist → queue.** The API checks identity, room membership and
    admission limits, commits an immutable source/language snapshot, then publishes
@@ -64,7 +120,7 @@ The separate worker host keeps the Docker execution boundary away from the API
 and its application credentials. PostgreSQL commits and RabbitMQ publication are
 not atomic; the remaining failure windows are documented below.
 
-## Technology stack
+## Tech stack
 
 | Role | Technologies |
 | --- | --- |
@@ -78,16 +134,16 @@ not atomic; the remaining failure windows are documented below.
 Exact dependency versions, image digests and toolchain pins live in the Maven
 files, npm lockfile, sandbox Dockerfiles and [CI workflow](.github/workflows/ci.yml).
 
-## Tested behavior
+## Testing
 
-The [verified Milestone 16 workflow](https://github.com/Ywrd10/PairForge/actions/runs/36431277187)
-for commit `fcd04c7` passed with **zero failures, errors or skipped tests**:
+The [verified release-cleanup workflow](https://github.com/Ywrd10/PairForge/actions/runs/36502929739)
+for commit `f5eaebf` passed **483 tests with zero failures, errors or skips**:
 
 | Suite | Tests | Representative coverage |
 | --- | ---: | --- |
 | Java | 365 | Authorization, migrations, real database/broker/Redis outages, duplicate delivery, worker crashes, sandbox limits and cleanup |
 | Frontend unit | 70 | Forms, session expiry, editor lifecycle, collaboration ordering/recovery and uncertain requests |
-| Load harness | 35 | Timing/statistics, event correlation, duplicate events, deadlines, cleanup and uncertain submissions |
+| Load harness | 36 | Timing/statistics, event correlation, duplicate events, deadlines, cleanup and uncertain submissions |
 | Browser | 12 | Real registration/room workflows, shared editing, reconnect, Java/Python execution and result recovery |
 
 CI requires real Linux Docker controls and rejects missing or skipped integration
@@ -95,69 +151,7 @@ suites. Browser retries are disabled. Sanitized test summaries are uploaded;
 credentials, source/output and browser captures are excluded. See
 [test commands and failure coverage](docs/TESTING.md).
 
-## Measured AWS demo results
-
-These are **bounded portfolio/demo measurements**, taken through CloudFront from
-a desktop load generator. Collaboration and execution were measured separately
-on the existing `t3a.medium` app host and `t3a.small` worker host.
-
-| Measurement | Verified result |
-| --- | --- |
-| Collaboration workload | 2, 5 and 10 connections; three repetitions per stage |
-| Expected update deliveries | **2,040 / 2,040** |
-| Reconnect restoration | **9 / 9 passed** |
-| Unexpected collaboration errors / disconnects | **0 / 0** |
-| Ten-connection delivery latency | **47.84 ms p50 / 72.09 ms p95** |
-| Execution submissions | **30 / 30 succeeded**, including six warm-ups |
-| Small-batch throughput | **Java 0.339 jobs/sec; Python 1.123 jobs/sec** |
-
-Both authenticated observers received every terminal execution result. Each
-language had twelve measured jobs across three batches; the worker processed
-one job at a time. Throughput excludes warm-ups and cooldowns and **does not
-establish sustained system capacity**.
-
-| Host | Peak sampled CPU | Minimum available RAM, rounded |
-| --- | ---: | ---: |
-| App | 83% | 2,665 MiB |
-| Worker | 65% | 1,212 MiB |
-
-Samples can miss short peaks; CPU-credit balances were unavailable under the
-existing IAM permissions. These measurements exclude Monaco rendering and do
-not establish a maximum connection count or large-scale performance guarantee.
-The [full methodology and local/AWS comparison](docs/LOAD_TESTING.md) and
-[sanitized AWS artifact](docs/load-results/m16-aws-2026-09-28.json) preserve the
-individual timings, interruptions, environment and cleanup evidence.
-
-## AWS deployment
-
-[Open PairForge](https://d3pq3na8h2es74.cloudfront.net) **when the demo is scheduled
-to run.** Both hosts are normally stopped between supervised demos to control
-costs; the URL may be unavailable. This is not a 24/7 service. Registration alone
-does not grant deployed code-execution access.
-
-CloudFront supplies browser HTTPS/WSS. Its VPC origin reaches Caddy on a private
-application host, which serves the frontend and proxies the API. PostgreSQL,
-Redis and RabbitMQ share that host. The separate worker host connects to
-PostgreSQL and RabbitMQ privately with verified TLS. The CloudFront-to-Caddy hop
-uses explicitly approved private HTTP, so the path is not end-to-end TLS.
-
-Daily encrypted PostgreSQL backups use separate S3 storage with seven-day
-retention while the deployment operates. Shutdown closes admission, drains jobs,
-verifies cleanup and a fresh backup, then stops services and hosts. A database
-restore drill has passed. Downtime/retention behavior, costs, access boundaries
-and recovery procedures are in the [deployment runbook](docs/DEPLOYMENT.md).
-
-## Security and isolation
-
-Compilation and execution run only inside disposable containers: non-root users,
-no external network, dropped capabilities, retained seccomp protection,
-read-only root filesystems, and bounded CPU, memory, processes, storage, output
-and time. Containers receive no Docker socket or application secrets. Required
-sandbox controls fail closed, and deployed execution is restricted to approved
-test accounts. Docker remains portfolio-level isolation, not a hardened
-multi-tenant sandbox or a claim of perfect hostile-code safety.
-
-## Run locally
+## Running locally
 
 The supported helper workflow uses **Windows PowerShell 7.4+, JDK 21, Node 24/npm,
 and Docker Desktop with Linux containers, cgroup v2 and seccomp**. Run from the
@@ -210,6 +204,35 @@ Stop the three application terminals with Ctrl+C, then preserve local data with:
 ```powershell
 .\scripts\dev.ps1 -Service stop
 ```
+
+## AWS deployment
+
+[Open PairForge](https://d3pq3na8h2es74.cloudfront.net) **when the demo is scheduled
+to run.** Both hosts are normally stopped between supervised demos to control
+costs; the URL may be unavailable. This is not a 24/7 service. Registration alone
+does not grant deployed code-execution access.
+
+CloudFront supplies browser HTTPS/WSS. Its VPC origin reaches Caddy on a private
+application host, which serves the frontend and proxies the API. PostgreSQL,
+Redis and RabbitMQ share that host. The separate worker host connects to
+PostgreSQL and RabbitMQ privately with verified TLS. The CloudFront-to-Caddy hop
+uses explicitly approved private HTTP, so the path is not end-to-end TLS.
+
+Daily encrypted PostgreSQL backups use separate S3 storage with seven-day
+retention while the deployment operates. Shutdown closes admission, drains jobs,
+verifies cleanup and a fresh backup, then stops services and hosts. A database
+restore drill has passed. Downtime/retention behavior, costs, access boundaries
+and recovery procedures are in the [deployment runbook](docs/DEPLOYMENT.md).
+
+## Security and isolation
+
+Compilation and execution run only inside disposable containers: non-root users,
+no external network, dropped capabilities, retained seccomp protection,
+read-only root filesystems, and bounded CPU, memory, processes, storage, output
+and time. Containers receive no Docker socket or application secrets. Required
+sandbox controls fail closed, and deployed execution is restricted to approved
+test accounts. Docker remains portfolio-level isolation, not a hardened
+multi-tenant sandbox or a claim of perfect hostile-code safety.
 
 ## Known limitations
 
