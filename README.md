@@ -15,6 +15,15 @@ testing, encrypted backup/restore verification, and external beta testing.
 [Testing](docs/TESTING.md) · [Measurements](docs/LOAD_TESTING.md#complete-aws-measurements--2026-09-28) ·
 [Deployment](docs/DEPLOYMENT.md)
 
+## Screenshots
+
+Real deployed UI captures; click an image for the full-size view. Browser and room
+identifiers are cropped out, and execution identifiers are redacted.
+
+| Dashboard | Shared Monaco editor | Successful Python execution |
+| --- | --- | --- |
+| [![Dashboard with room list, create form and empty invitation join fields](docs/assets/dashboard.png)](docs/assets/dashboard.png) | [![One shared Monaco editor view with Python selected and the Run control](docs/assets/collaboration.png)](docs/assets/collaboration.png) | [![Connected room with a successful Python result, exit code zero and PairForge demo OK stdout](docs/assets/execution.png)](docs/assets/execution.png) |
+
 ## Why PairForge
 
 The focus is the backend behavior behind a shared editor: authorization on every

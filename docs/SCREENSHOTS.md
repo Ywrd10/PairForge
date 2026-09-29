@@ -1,9 +1,27 @@
 # Final portfolio screenshots
 
-The three final captures are pending. No presentation screenshots are tracked;
-automated browser captures are disabled to avoid leaking credentials/invitations.
-The README references no unsupplied image. Capture only the real finished UI;
-do not generate mock screenshots or alter code, output, status or connection claims.
+Three real deployed Chrome/PC captures were supplied by the owner on 2026-09-28
+and prepared with explicitly approved non-generative cropping and opaque
+redaction. They are linked near the README introduction:
+
+| Asset | Actual view |
+| --- | --- |
+| [dashboard.png](assets/dashboard.png) | Room list, creation form and empty invitation join fields |
+| [collaboration.png](assets/collaboration.png) | One shared Monaco editor with Python selected and the harmless demo source |
+| [execution.png](assets/execution.png) | Connected room, SUCCEEDED Python execution, exit code 0, 655 ms and `PairForge demo OK` stdout |
+
+Browser bars and the room-details card were cropped out. Both execution-ID
+occurrences were covered with solid, opaque redactions. The original UI, source,
+status, duration and output were preserved; no mock UI or generated content was
+used. Only the sanitized PNGs belong in Git, not the original clipboard captures.
+The editor image shows one view and is not independent proof of a two-user
+interaction. Existing collaboration and beta evidence remains documented
+separately.
+
+Visual privacy review found no emails, UUIDs, invitation/session tokens, private
+source, AWS identifiers or password-manager overlays in the final images. PNGs
+were exported onto fresh canvases to discard the original metadata. Automated
+browser captures remain disabled. Use the workflow below for future recaptures.
 
 ## Prepare locally
 
@@ -92,11 +110,12 @@ Keep the real status, exit code, duration and stdout/stderr unchanged.
 - No image may contain emails, account/room/execution UUIDs, invitation or session
   tokens, private code, AWS account/resource identifiers, or password-manager
   overlays. Do not share raw sensitive captures for later redaction.
-- After the owner supplies the real captures, inspect them before placing them
-  under `docs/assets/`. Add concise alt text and real relative image references
-  near the README introduction. Do not add placeholders or nonexistent links.
-- Rerun the current-tree privacy scan, image review and documentation/link checks
-  after the assets arrive. Screenshot review remains pending until then.
+- Inspect any replacement captures before placing them under `docs/assets/`.
+  Add concise alt text and real relative image references near the README
+  introduction. Do not add placeholders or nonexistent links.
+- Repeat the current-tree privacy scan, image review and documentation/link
+  checks whenever these assets are replaced.
 - Stop local application terminals and use the documented local shutdown after
-  capture. AWS remains stopped; a cloud capture would require a separate approved
-  operating window, not an automatic restart.
+  capture. For AWS captures, use a separately approved operating window and
+  verify the documented drain, cleanup, encrypted backup and stopped hosts at
+  its end. Screenshot preparation does not automatically restart AWS.
