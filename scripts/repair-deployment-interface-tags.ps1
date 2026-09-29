@@ -4,6 +4,8 @@ param([Parameter(Mandatory)][switch]$ApprovedAdministratorRepair)
 $ErrorActionPreference='Stop'
 if(-not $ApprovedAdministratorRepair) { throw 'Administrator repair approval required' }
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
+$state=Get-PairForgeDeploymentState -RequiredKeys AppSubnetId,AdminSecurityGroupId
 $aws=Get-PairForgeAwsExecutable
 function Admin($Arguments) {
     $output=& $aws @Arguments --profile default --region us-east-1 --output json --no-cli-pager
@@ -11,15 +13,15 @@ function Admin($Arguments) {
     if($output) { return ($output | ConvertFrom-Json -AsHashtable) }
 }
 $identity=Admin @('sts','get-caller-identity')
-if($identity.Account -ne '298984481596' -or $identity.Arn -ne 'arn:aws:iam::298984481596:root') { throw 'Unexpected administrator identity' }
-$arn='arn:aws:iam::298984481596:policy/pairforge/PairForge-compute'
+if($identity.Account -ne $operator.AccountId -or $identity.Arn -ne "arn:aws:iam::$($operator.AccountId):root") { throw 'Unexpected administrator identity' }
+$arn="arn:aws:iam::$($operator.AccountId):policy/pairforge/PairForge-compute"
 $policy=Admin @('iam','get-policy','--policy-arn',$arn)
 $version=Admin @('iam','get-policy-version','--policy-arn',$arn,'--version-id',$policy.Policy.DefaultVersionId)
 $document=$version.PolicyVersion.Document
 if(@($document.Statement | Where-Object Sid -eq 'AdministrationInterfaceCreationTags').Count) { throw 'Tag statement already exists; inspect instead of overwriting' }
 $dependencies=@($document.Statement | Where-Object Sid -eq 'AdministrationInterfaceDependencies')
-if($dependencies.Count -ne 1 -or (($dependencies[0].Resource | Sort-Object) -join ',') -ne 'arn:aws:ec2:us-east-1:298984481596:security-group/sg-0aaaf1d9a141d0f66,arn:aws:ec2:us-east-1:298984481596:subnet/subnet-0556e3a3dfd15f501') { throw 'Exact administration boundary missing' }
-$document.Statement+=@{Sid='AdministrationInterfaceCreationTags';Effect='Allow';Action=@('ec2:CreateTags');Resource=@('arn:aws:ec2:us-east-1:298984481596:network-interface/*');Condition=@{StringEquals=@{'ec2:NetworkInterfaceID'='*'}}}
+if($dependencies.Count -ne 1 -or (($dependencies[0].Resource | Sort-Object) -join ',') -ne "arn:aws:ec2:us-east-1:$($operator.AccountId):security-group/$($state.AdminSecurityGroupId),arn:aws:ec2:us-east-1:$($operator.AccountId):subnet/$($state.AppSubnetId)") { throw 'Exact administration boundary missing' }
+$document.Statement+=@{Sid='AdministrationInterfaceCreationTags';Effect='Allow';Action=@('ec2:CreateTags');Resource=@("arn:aws:ec2:us-east-1:$($operator.AccountId):network-interface/*");Condition=@{StringEquals=@{'ec2:NetworkInterfaceID'='*'}}}
 $file=[IO.Path]::GetTempFileName()
 try {
     [IO.File]::WriteAllText($file,($document | ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false))

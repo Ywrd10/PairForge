@@ -2,15 +2,16 @@
 param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or $state.Region -ne 'us-east-1' -or -not $state.AppInstanceId) { throw 'Approved application host required' }
+if($state.Account -ne $operator.AccountId -or $state.Region -ne 'us-east-1' -or -not $state.AppInstanceId) { throw 'Approved application host required' }
 $record=Invoke-PairForgeAws @('ec2','describe-instances','--instance-ids',$state.AppInstanceId)
 $instance=$record.Reservations[0].Instances[0]
 if($instance.State.Name -ne 'running' -or $instance.VpcId -ne $state.VpcId -or $instance.SubnetId -ne $state.AppSubnetId -or
    $instance.PrivateIpAddress -ne $state.AppPrivateIp -or $instance.InstanceType -ne 't3a.medium' -or $instance.PublicIpAddress) { throw 'Private application instance is not ready or differs from approved topology' }
-$arn="arn:aws:ec2:us-east-1:298984481596:instance/$($state.AppInstanceId)"
+$arn="arn:aws:ec2:us-east-1:$($operator.AccountId):instance/$($state.AppInstanceId)"
 $existing=Invoke-PairForgeAws @('cloudfront','list-vpc-origins')
 $matches=@($existing.VpcOriginList.Items | Where-Object { $_.VpcOriginEndpointConfig.Name -eq 'pairforge-app' })
 if($matches.Count -gt 1 -or ($matches.Count -eq 1 -and ($matches[0].Id -ne $state.VpcOriginId -or $matches[0].VpcOriginEndpointConfig.Arn -ne $arn))) { throw 'Unrecorded or mismatched VPC origin; reconcile before creating another' }

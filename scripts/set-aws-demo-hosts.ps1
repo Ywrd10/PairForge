@@ -8,9 +8,10 @@ if($Mode -eq 'Stop' -and -not $CleanShutdownVerified) {
 }
 if($Mode -eq 'Start' -and $CleanShutdownVerified) { throw 'CleanShutdownVerified applies only to Stop' }
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json
-if($state.Account -ne '298984481596' -or -not $state.AppInstanceId -or -not $state.WorkerInstanceId) {
+if($state.Account -ne $operator.AccountId -or -not $state.AppInstanceId -or -not $state.WorkerInstanceId) {
     throw 'Both recorded PairForge hosts are required'
 }
 $ids=@($state.AppInstanceId,$state.WorkerInstanceId)

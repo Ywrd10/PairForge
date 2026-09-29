@@ -28,7 +28,7 @@
     "region": "us-east-1",
     "zone": "us-east-1a",
     "app": {
-      "instance": "i-089a4dc88b34e6c56",
+      "instance": "<app-instance-id>",
       "type": "t3a.medium",
       "cpus": 2,
       "memoryBytes": 4031000576,
@@ -37,7 +37,7 @@
       "jarSha256": "5554408758ba52d62b96cda9dc5efabf94d874536402b27de3565723bc3e24c6"
     },
     "worker": {
-      "instance": "i-06befca753a936715",
+      "instance": "<worker-instance-id>",
       "type": "t3a.small",
       "cpus": 2,
       "memoryBytes": 2004905984,

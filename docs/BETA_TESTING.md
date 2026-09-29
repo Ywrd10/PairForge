@@ -421,7 +421,7 @@ missing Python runs or production capacity.
   not hidden with `reset-failed`, treated as workload health loss, or claimed as
   a product fix.
 - `backup.service` returned success/exit zero. The fresh CMS-encrypted PostgreSQL
-  backup at `postgres/2026-09-28/185458-192cc1ffc9db455da400da1a59bf4ecc.dump.cms`
+  backup at `postgres/2026-09-28/<backup-object-1>.dump.cms`
   contains **18,842 bytes** of ciphertext, with S3 AES256 encryption. A download
   matched both S3's SHA256 checksum and SHA256 metadata. Seven-day lifecycle
   retention was verified. A ciphertext recovery copy was retained in existing

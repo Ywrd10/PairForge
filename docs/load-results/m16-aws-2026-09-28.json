@@ -28,7 +28,7 @@
     "region": "us-east-1",
     "zone": "us-east-1a",
     "app": {
-      "instance": "i-089a4dc88b34e6c56",
+      "instance": "<app-instance-id>",
       "type": "t3a.medium",
       "cpus": 2,
       "memoryBytes": 4031000576,
@@ -37,7 +37,7 @@
       "jarSha256": "5554408758ba52d62b96cda9dc5efabf94d874536402b27de3565723bc3e24c6"
     },
     "worker": {
-      "instance": "i-06befca753a936715",
+      "instance": "<worker-instance-id>",
       "type": "t3a.small",
       "cpus": 2,
       "memoryBytes": 2004905984,
@@ -6131,8 +6131,8 @@
     "localBenchmarkProcesses": "exited",
     "authenticationMarker": "removed",
     "backup": {
-      "bucket": "pairforge-298984481596-us-east-1-backups",
-      "Key": "postgres/2026-09-28/133318-850ae5cb2d5d4d98adfa00e6db62d3d2.dump.cms",
+      "bucket": "<private-backup-bucket>",
+      "Key": "postgres/2026-09-28/<backup-object-4>.dump.cms",
       "Bytes": 18252,
       "SHA256": "52f1a80ed9d04a8834d1363759c6408b758f2c0e00be1e4df0805c43bd070eba",
       "SSE": "AES256",
@@ -6142,13 +6142,13 @@
     },
     "instances": [
       {
-        "id": "i-06befca753a936715",
+        "id": "<worker-instance-id>",
         "type": "t3a.small",
         "state": "stopped",
         "publicIp": null
       },
       {
-        "id": "i-089a4dc88b34e6c56",
+        "id": "<app-instance-id>",
         "type": "t3a.medium",
         "state": "stopped",
         "publicIp": null

@@ -5,6 +5,7 @@ import local from './local.json'
 
 const sample = (role: 'App' | 'Worker' = 'App') => hostSample({ role, cpuPercent: 20, availableBytes: 2**30,
   diskAvailableBytes: 10 * 2**30, diskTotalBytes: 30 * 2**30, oomKills: 3, cleanupFailures: 0, healthy: true, ready: 0, unacked: 0 })
+const users = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
 it('rejects expired/malformed credentials without echoing private input',()=>{
   const sessions=[{accessToken:'secret',expiresAt:new Date(900000).toISOString()},{accessToken:'other',expiresAt:new Date(900000).toISOString()}]
   expect(privateSessions(JSON.stringify(sessions),0)).toHaveLength(2)
@@ -20,9 +21,22 @@ it('accepts only the exact approved remote workload and target', () => {
   for (const url of ['http://d3pq3na8h2es74.cloudfront.net','https://example.com','https://d3pq3na8h2es74.cloudfront.net/']) expect(()=>configureRemoteTarget(url)).toThrow()
 })
 it('requires both distinct approved identities', () => {
-  approvedIdentity([...approvedUsers].reverse())
-  expect(()=>approvedIdentity([approvedUsers[0],approvedUsers[0]])).toThrow()
-  expect(()=>approvedIdentity([approvedUsers[0],'other'])).toThrow()
+  const approved = approvedUsers({ ApprovedBenchmarkUsers: users })
+  approvedIdentity([...approved].reverse(), approved)
+  expect(()=>approvedIdentity([approved[0],approved[0]], approved)).toThrow()
+  expect(()=>approvedIdentity([approved[0],'other'], approved)).toThrow()
+  expect(()=>approvedIdentity([approved[0],'33333333-3333-4333-8333-333333333333'], approved)).toThrow()
+  expect(()=>approvedIdentity(users, [])).toThrow()
+})
+it('fails closed on missing, malformed, duplicate or expanded operator approval sets', () => {
+  for (const value of [undefined, {}, { ApprovedBenchmarkUsers: 'not-an-array' },
+    ...[[], [users[0]], [users[0], users[0]], [...users, users[0]], [users[0], 'invalid'],
+      [users[0], 1]].map(ApprovedBenchmarkUsers => ({ ApprovedBenchmarkUsers }))])
+    expect(()=>approvedUsers(value)).toThrow('Two explicitly approved')
+  const config = { ApprovedBenchmarkUsers: [...users] }
+  const result = approvedUsers(config)
+  result.reverse()
+  expect(config.ApprovedBenchmarkUsers).toEqual(users)
 })
 it('resumes only verified completed work without resetting the original deadline',()=>{
   const checkpoint={settings:local,target:'https://d3pq3na8h2es74.cloudfront.net',started:new Date(0).toISOString(),

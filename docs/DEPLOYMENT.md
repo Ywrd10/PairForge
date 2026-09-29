@@ -14,8 +14,7 @@ The owner confirmed their teammate independently authenticated and joined using
 the invitation, both people edited in both directions and Java/Python results
 arrived without Refresh Status. Both accounts were registered, and reload
 restoration was verified by the owner. The backend allowlist remained exactly
-`04ad007f-63ea-43fb-8d29-7cfaa9b089f1` and
-`24ed65b0-9559-46d5-a2e2-0cbeec72b3b4`; the owner verified rejection of the
+the two individually approved test accounts; the owner verified rejection of the
 second account before approval. No third account or public execution was enabled.
 
 Java/Python success, Java compilation failure, Python runtime failure, timeout
@@ -48,7 +47,7 @@ or per-container samples. CloudWatch CPUCreditBalance reads were denied to the
 deployer; permissions were not broadened. Sustained capacity remains untested.
 
 Final pre-shutdown backup:
-`postgres/2026-09-27/210912-505f616b38a04a52908c4458ff19283e.dump.cms`,
+`postgres/2026-09-27/<backup-object-2>.dump.cms`,
 16,310 bytes, S3 AES256, SHA256
 `a16c5838eb63dd94bb5e060bbb254a62232f5e6b5af38073ccd01bf835c3f03d`.
 Downloaded ciphertext matched metadata/checksum; offline decryption kept the
@@ -82,7 +81,10 @@ or resize was introduced during final acceptance.
 
 ## Approved environment and cost envelope
 
-Use account `298984481596`, region `us-east-1`, and CLI profile `pairforge`.
+Keep the exact approved account and resource identities in ignored operator
+files, as described in [OPERATOR_CONFIGURATION.md](OPERATOR_CONFIGURATION.md).
+Public aliases in these records are not executable configuration. Use the
+configured approved account, region `us-east-1`, and CLI profile `pairforge`.
 Every provisioning/operation entry point must verify STS account and identity;
 reject the root identity, a different account, or missing credentials. Root is
 used only to bootstrap the dedicated IAM identity and its fixed permissions.
@@ -200,8 +202,8 @@ The identity bootstrap created `pairforge-deployer`, three scoped managed
 deployment policies, and the fixed `pairforge-app-backup` role/instance profile.
 No access keys were created. The owner completed console password/MFA setup.
 On 2026-09-24, STS verified profile `pairforge` as
-`arn:aws:iam::298984481596:user/pairforge/pairforge-deployer`, account
-`298984481596`, region `us-east-1`. `aws-deployment-context.ps1`
+`arn:aws:iam::<approved-aws-account-id>:user/pairforge/pairforge-deployer`, account
+`<approved-aws-account-id>`, region `us-east-1`. `aws-deployment-context.ps1`
 rejects root, a different account/user or the wrong configured region. The
 create-only `new-aws-budget.ps1 -Email <actual-address>` helper checks its budget
 amount, thresholds and configured recipient after creation. It successfully
@@ -342,9 +344,9 @@ claim a fresh passing full local integration suite. Milestone 16 remains TODO.
 ## Manual startup, shutdown, and recovery
 
 Use only the `pairforge` AWS CLI profile in `us-east-1`. First verify STS returns
-account `298984481596` and IAM user `pairforge-deployer`; never use the default
-root profile. The two approved instances are app `i-089a4dc88b34e6c56` and
-worker `i-06befca753a936715`. SSH administration uses the recorded EC2 Instance
+account `<approved-aws-account-id>` and IAM user `pairforge-deployer`; never use the default
+root profile. The two approved instances are app `<app-instance-id>` and
+worker `<worker-instance-id>`. SSH administration uses the recorded EC2 Instance
 Connect Endpoint through `scripts/invoke-deployment-ssh.ps1` and its pinned local
 key/known-hosts files. Do not accept an unexpected SSH host-key change without
 verifying the fingerprint through authenticated EC2 console output.
@@ -397,7 +399,7 @@ clean. Remove the plaintext dump after the check.
 ## Approved allowlist and restore checkpoint (2026-09-26)
 
 Browser sign-in renewed profile `pairforge` and STS again verified the dedicated
-non-root deployer in account `298984481596`, region `us-east-1`. The allowlist
+non-root deployer in account `<approved-aws-account-id>`, region `us-east-1`. The allowlist
 was changed from the owner alone to exactly both explicitly approved UUIDs.
 The API restarted and readiness returned UP; worker readiness was UP. The
 root-owned 0644 admission marker was opened through the documented helper.
@@ -556,8 +558,8 @@ authenticated WSS and the two-person acceptance workflow are still pending.
 
 The deployment/documentation checkpoint was committed as `42884bf` before
 restarting either host. After renewing the session, STS verified account
-`298984481596`, profile `pairforge`, region `us-east-1`, and IAM user
-`arn:aws:iam::298984481596:user/pairforge/pairforge-deployer`.
+`<approved-aws-account-id>`, profile `pairforge`, region `us-east-1`, and IAM user
+`arn:aws:iam::<approved-aws-account-id>:user/pairforge/pairforge-deployer`.
 
 - The same two approved hosts passed EC2 status checks. The app has no public
   address or internet default route; worker IMDS remains disabled with no IAM
@@ -679,14 +681,14 @@ These results do not satisfy the deployment milestone's acceptance criteria.
 - Verified the non-root `pairforge-deployer` CLI identity and configured region.
 - Created and verified the approved monthly budget, all three thresholds and
   their configured recipient; no contact address is stored in this repository.
-- Created VPC `vpc-0ecfd20520993aace`, app subnet
-  `subnet-0556e3a3dfd15f501`, worker subnet `subnet-02e9fb993e7bd205a`,
-  Internet Gateway `igw-08fc55afd5ea009b9`, two route tables and three security
+- Created VPC `<vpc-id>`, app subnet
+  `<app-subnet-id>`, worker subnet `<worker-subnet-id>`,
+  Internet Gateway `<internet-gateway-id>`, two route tables and three security
   groups in `us-east-1a`. The app has no internet default route or public ingress;
   only the worker subnet has an internet default route. Network IDs and completed
   operations are recorded in ignored `.tmp/m15-aws-state.json` for resumption.
 - Created the exact CloudFront VPC origin service-linked role and free S3 gateway
-  endpoint. Created `pairforge-298984481596-us-east-1-backups` and verified all four
+  endpoint. Created `<private-backup-bucket>` and verified all four
   public-access blocks, bucket-owner-enforced ownership, AES256 server-side
   encryption, TLS-only access, seven-day `postgres/` retention, and private-endpoint
   enforcement for uploads by the app backup role. The bucket is empty; actual
@@ -727,16 +729,16 @@ outstanding. No Milestone 16 work is included.
 ## IAM correction follow-up (2026-09-24)
 
 The owner applied the service-linked-role capitalization correction. Endpoint
-`eice-0d1871924fd7471c4` was accepted but subsequently entered `create-failed`:
+`<eice-resource-13>` was accepted but subsequently entered `create-failed`:
 AWS requires the caller to have `ec2:CreateNetworkInterface` for the endpoint's
 subnet, security group and new interface. Its network-interface list is empty.
-Host launch was also denied on `ami-0045d7fc2ad003464`: DescribeImages verifies
+Host launch was also denied on `<ami-id>`: DescribeImages verifies
 Canonical owner ID `099720109477`, while the image-owner alias is `amazon`.
 An account-ID IAM owner condition does not match that alias. No host was created.
 
 The finalized compute policy pins that exact verified Ubuntu 24.04 AMI, permits
-interface creation only in `subnet-0556e3a3dfd15f501` with administration security
-group `sg-0aaaf1d9a141d0f66`, and includes the worker metadata-disabling permission.
+interface creation only in `<app-subnet-id>` with administration security
+group `<admin-security-group-id>`, and includes the worker metadata-disabling permission.
 The administrator must apply the full corrected compute policy. These actions
 do not give the deployer IAM editing, arbitrary instance types or other VPCs.
 The generated policy awaits application and live verification; do not describe
@@ -753,7 +755,7 @@ AWS references for these corrections: [Instance Connect Endpoint permissions](ht
 and [IMDS launch implications for SSH keys and user data](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-IMDS-new-instances.html).
 
 After the full compute-policy replacement, the original failed empty endpoint
-was removed. Replacement `eice-0a7c34b7a38336c9a` also entered `create-failed`,
+was removed. Replacement `<eice-resource-16>` also entered `create-failed`,
 this time on authorization for the new `network-interface/*` resource. The
 subnet condition on that not-yet-created resource was removed from the generator;
 authorization remains bounded by the separate required exact subnet/security-group
@@ -787,12 +789,12 @@ The owner then explicitly approved both scoped IAM changes. The helper archived
 the oldest non-default version locally and applied the creation-only tag statement
 as compute policy `v6`. Subsequent provisioning verified and used only
 `pairforge-deployer`. The failed empty endpoint was deleted, and replacement
-`eice-0174926142c2645df` entered `create-in-progress`; hosts remain gated on its
+`<admin-endpoint-id>` entered `create-in-progress`; hosts remain gated on its
 verified `create-complete` status. This checkpoint does not claim deployment
 acceptance or change Milestone 15's TODO status.
 
 The replacement endpoint subsequently reached **create-complete**, with interface
-`eni-0628af0f62aecc5d3`. A live structural comparison confirms `v6` preserves every
+`<eni-resource-18>`. A live structural comparison confirms `v6` preserves every
 `v5` statement and adds only the approved tag statement. All three local identity
 rejection checks and six endpoint readiness checks pass.
 
@@ -816,13 +818,13 @@ still outstanding.
 ## Host bootstrap checkpoint (2026-09-24)
 
 The owner confirmed upgrading the account plan. Provisioning again verified
-account `298984481596`, profile `pairforge`, region `us-east-1`, and the dedicated
+account `<approved-aws-account-id>`, profile `pairforge`, region `us-east-1`, and the dedicated
 `pairforge-deployer` identity, then created exactly the approved hosts:
 
 | Role | Instance | Private address | Initial available RAM / free root disk |
 | --- | --- | --- | --- |
-| App | `i-089a4dc88b34e6c56` (`t3a.medium`) | `10.42.1.137` | 3356 MiB / 26 GiB |
-| Worker | `i-06befca753a936715` (`t3a.small`) | `10.42.2.6` | 1491 MiB / 17 GiB |
+| App | `<app-instance-id>` (`t3a.medium`) | `<app-private-ip>` | 3356 MiB / 26 GiB |
+| Worker | `<worker-instance-id>` (`t3a.small`) | `<worker-private-ip>` | 1491 MiB / 17 GiB |
 
 These are idle measurements before application installation, not acceptance
 under a two-user workload. AWS verified encrypted 30/20 GB gp3 disks, baseline

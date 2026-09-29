@@ -3,13 +3,14 @@ param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json",
       [string]$PrivateDirectory="$PSScriptRoot/../.tmp/m15-production")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $PrivateDirectory=[IO.Path]::GetFullPath($PrivateDirectory)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or -not $state.VpcOriginId -or -not $state.CloudFrontSecurityGroupId) { throw 'Approved private origin and restricted ingress required' }
+if($state.Account -ne $operator.AccountId -or -not $state.VpcOriginId -or -not $state.CloudFrontSecurityGroupId) { throw 'Approved private origin and restricted ingress required' }
 $origin=Invoke-PairForgeAws @('cloudfront','get-vpc-origin','--id',$state.VpcOriginId)
-if($origin.VpcOrigin.Status -ne 'Deployed' -or $origin.VpcOrigin.VpcOriginEndpointConfig.Arn -ne "arn:aws:ec2:us-east-1:298984481596:instance/$($state.AppInstanceId)") { throw 'Exact VPC origin must finish deployment first' }
+if($origin.VpcOrigin.Status -ne 'Deployed' -or $origin.VpcOrigin.VpcOriginEndpointConfig.Arn -ne "arn:aws:ec2:us-east-1:$($operator.AccountId):instance/$($state.AppInstanceId)") { throw 'Exact VPC origin must finish deployment first' }
 $instances=Invoke-PairForgeAws @('ec2','describe-instances','--instance-ids',$state.AppInstanceId)
 $instance=$instances.Reservations[0].Instances[0]
 if($instance.VpcId -ne $state.VpcId -or $instance.PrivateIpAddress -ne $state.AppPrivateIp -or $instance.PublicIpAddress -or -not $instance.PrivateDnsName) { throw 'Private application host identity mismatch' }

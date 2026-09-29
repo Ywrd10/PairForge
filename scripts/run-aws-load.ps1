@@ -7,6 +7,8 @@ param(
     [switch]$ApprovedTwentyMinuteContinuation
 )
 $ErrorActionPreference='Stop'
+. "$PSScriptRoot/operator-config.ps1"
+$operator=Get-PairForgeOperatorConfig
 $target='https://d3pq3na8h2es74.cloudfront.net'
 $root=Split-Path $PSScriptRoot -Parent
 $ReportDirectory=[IO.Path]::GetFullPath($ReportDirectory)
@@ -52,8 +54,7 @@ try {
             $account=Invoke-RestMethod -Uri "$target/api/auth/me" -Headers @{Authorization="Bearer $($session.accessToken)";Origin=$target} -TimeoutSec 10 -MaximumRedirection 0
             $account.id
         })
-        $approved=@('04ad007f-63ea-43fb-8d29-7cfaa9b089f1','24ed65b0-9559-46d5-a2e2-0cbeec72b3b4')
-        if($ids.Count -ne 2 -or @($ids|Select-Object -Unique).Count -ne 2 -or @($ids|Where-Object{$_ -notin $approved}).Count){throw 'Only the two approved accounts may benchmark'}
+        Assert-PairForgeBenchmarkIdentity $ids $operator.ApprovedBenchmarkUsers
         Assert-ContinuationTime
         # Non-secret status only; passwords and tokens never leave process memory/stdin.
         @{authenticated=$true;at=[DateTimeOffset]::UtcNow.ToString('o')}|ConvertTo-Json -Compress|Set-Content -LiteralPath $authenticatedMarker

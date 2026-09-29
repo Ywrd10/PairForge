@@ -1,6 +1,8 @@
 #Requires -Version 7.0
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$script:ExpectedConfig=@{AccountId='111111111111';DeploymentArn='arn:aws:iam::111111111111:user/pairforge/pairforge-deployer'}
+function Get-PairForgeOperatorConfig { return $script:ExpectedConfig }
 $script:Calls=0
 function Invoke-PairForgeAws([string[]]$Arguments) {
     $script:Calls++
@@ -8,9 +10,9 @@ function Invoke-PairForgeAws([string[]]$Arguments) {
 }
 # These identities must be rejected before any other CLI operation is attempted.
 foreach($case in @(
-    @('298984481596','arn:aws:iam::298984481596:root'),
-    @('111111111111','arn:aws:iam::111111111111:user/pairforge/pairforge-deployer'),
-    @('298984481596','arn:aws:iam::298984481596:user/unrelated')
+    @('111111111111','arn:aws:iam::111111111111:root'),
+    @('222222222222','arn:aws:iam::222222222222:user/pairforge/pairforge-deployer'),
+    @('111111111111','arn:aws:iam::111111111111:user/unrelated')
 )) {
     $script:Account=$case[0]; $script:Arn=$case[1]; $rejected=$false
     try { Assert-PairForgeDeploymentIdentity } catch {
@@ -21,6 +23,17 @@ foreach($case in @(
 }
 if($script:Calls -ne 3) { throw 'Unexpected identity lookup count' }
 Write-Host 'Deployment identity rejection checks passed: root, wrong account and unrelated user.'
+function Get-PairForgeAwsExecutable { return 'Get-TestProfileRegion' }
+function Get-TestProfileRegion { $global:LASTEXITCODE=0; return $script:ProfileRegion }
+$script:Account=$script:ExpectedConfig.AccountId
+$script:Arn=$script:ExpectedConfig.DeploymentArn
+$script:ProfileRegion='us-east-1'
+Assert-PairForgeDeploymentIdentity
+$script:ProfileRegion='us-west-2'
+$rejected=$false
+try { Assert-PairForgeDeploymentIdentity } catch { $rejected=$true }
+if(-not $rejected) { throw 'Wrong configured region accepted' }
+Write-Host 'Exact configured deployer accepted; mismatched profile region rejected with offline CLI stubs.'
 $state=@{AdminEndpointId='eice-approved';AppSubnetId='subnet-approved';AdminSecurityGroupId='sg-approved'}
 function Invoke-PairForgeAws([string[]]$Arguments) {
     if($Arguments[1] -ne 'describe-instance-connect-endpoints') { throw 'Unexpected mutation or lookup during readiness validation' }

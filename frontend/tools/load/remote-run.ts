@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { cpus, platform, release } from 'node:os'
 import { distribution, until } from './core.ts'
-import { approvedIdentity, privateSessions, remoteConfig, resumeBudget } from './remote-policy.ts'
+import { approvedIdentity, approvedUsers, privateSessions, remoteConfig, resumeBudget } from './remote-policy.ts'
 import { observeHosts, remoteCommand } from './remote-io.ts'
 import { configureRemoteTarget, json } from './transport.ts'
 import { collaboration } from './collaboration.ts'
@@ -14,6 +14,12 @@ if (!target || !pwsh || !destination || ![5,6,7,8].includes(process.argv.length)
 if (windowMinutes !== undefined && windowMinutes !== '20') throw new Error('Only the approved twenty-minute continuation is supported')
 if (windowMinutes && (!resumePath || !approvedWindowStart)) throw new Error('Continuation requires checkpoint and window start')
 configureRemoteTarget(target)
+// Fail before authentication/network work. This operator-approved set is never
+// populated from the sessions being authenticated or written into reports.
+const policyPath = process.env.PAIRFORGE_OPERATOR_CONFIG || resolve(import.meta.dirname, '../../../.tmp/operator-config.json')
+let approved: string[]
+try { approved = approvedUsers(JSON.parse(await readFile(policyPath, 'utf8'))) }
+catch { throw new Error('Valid private operator configuration required; values are not logged') }
 const settings = remoteConfig(JSON.parse(await readFile(new URL('./local.json',import.meta.url),'utf8')))
 const directory = resolve(destination)
 await mkdir(directory,{recursive:true})
@@ -38,7 +44,7 @@ const save=()=>writeFile(resolve(directory,'report.json'),JSON.stringify(report,
 try {
   const tokens=sessions.map(s=>s.accessToken)
   const identities=await Promise.all(tokens.map(t=>json<{id:string}>('/auth/me',t,undefined,abort.signal,10000)))
-  approvedIdentity(identities.map(i=>i.id));report.approvedIdentitiesVerified=true
+  approvedIdentity(identities.map(i=>i.id), approved);report.approvedIdentitiesVerified=true
   observer=observeHosts(pwsh,abort)
   await until(()=>{try {observer!.guard.fresh(performance.now());return true}catch{return false}},60000,abort.signal)
   observer.startGuard()

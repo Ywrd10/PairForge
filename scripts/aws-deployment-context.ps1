@@ -1,5 +1,6 @@
 # Shared by deployment entry points. Never use ambient/default profile selection.
 $ErrorActionPreference='Stop'
+. "$PSScriptRoot/operator-config.ps1"
 function Get-PairForgeAwsExecutable {
     $command=Get-Command aws -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if($command) { return $command.Source }
@@ -17,9 +18,10 @@ function Invoke-PairForgeAws([string[]]$Arguments) {
     if($output) { return ($output | ConvertFrom-Json) }
 }
 function Assert-PairForgeDeploymentIdentity {
+    $config=Get-PairForgeOperatorConfig
     $identity=Invoke-PairForgeAws @('sts','get-caller-identity')
-    if($identity.Account -ne '298984481596' -or $identity.Arn -ne 'arn:aws:iam::298984481596:user/pairforge/pairforge-deployer') {
-        throw 'Deployment requires the approved non-root pairforge-deployer identity in account 298984481596'
+    if($identity.Account -cne $config.AccountId -or $identity.Arn -cne $config.DeploymentArn) {
+        throw 'Deployment requires the exact configured non-root pairforge-deployer identity in the approved account'
     }
     $executable=Get-PairForgeAwsExecutable
     $region=& $executable configure get region --profile pairforge

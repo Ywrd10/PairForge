@@ -320,7 +320,7 @@ terminal database status. Current remaining cases above are **pending**.
   CPU-credit reads were denied by IAM. **Demo capacity: PASS with these sampling
   limitations**, no sustained-load or peak-capacity claim and no upgrade required.
 - Final backup service returned success/exit 0. The 16,310-byte encrypted S3
-  object `postgres/2026-09-27/210912-505f616b38a04a52908c4458ff19283e.dump.cms`
+  object `postgres/2026-09-27/<backup-object-2>.dump.cms`
   had AES256 encryption and SHA256
   `a16c5838eb63dd94bb5e060bbb254a62232f5e6b5af38073ccd01bf835c3f03d`.
   Download integrity and offline decryption passed. Isolated restore yielded

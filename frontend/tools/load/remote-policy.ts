@@ -1,6 +1,13 @@
 import { config } from './core.ts'
 
-export const approvedUsers = ['04ad007f-63ea-43fb-8d29-7cfaa9b089f1', '24ed65b0-9559-46d5-a2e2-0cbeec72b3b4']
+export function approvedUsers(value: unknown): string[] {
+  if (!value || typeof value !== 'object') throw new Error('Two explicitly approved benchmark accounts required')
+  const ids = (value as { ApprovedBenchmarkUsers?: unknown }).ApprovedBenchmarkUsers
+  if (!Array.isArray(ids) || ids.length !== 2 || new Set(ids).size !== 2
+    || ids.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)))
+    throw new Error('Two explicitly approved benchmark accounts required')
+  return [...ids]
+}
 export function remoteConfig(value: unknown) {
   const c = config(value)
   if (c.maxConnections !== 10 || c.maxJobs !== 30 || c.maxDurationSeconds !== 900 || c.deadlineMs !== 10000
@@ -42,8 +49,9 @@ export class CapacityGuard {
     }
   }
 }
-export function approvedIdentity(ids: string[]) {
-  if (ids.length !== 2 || new Set(ids).size !== 2 || ids.some(id => !approvedUsers.includes(id))) throw new Error('Only the two approved accounts may benchmark')
+export function approvedIdentity(ids: string[], approved: string[]) {
+  const expected = approvedUsers({ ApprovedBenchmarkUsers: approved })
+  if (ids.length !== 2 || new Set(ids).size !== 2 || ids.some(id => !expected.includes(id))) throw new Error('Only the two approved accounts may benchmark')
 }
 export function privateSessions(input: string, now: number, minimumValidityMs: 480000 | 700000 = 700000) {
   try {

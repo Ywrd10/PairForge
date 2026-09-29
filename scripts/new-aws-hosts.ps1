@@ -3,10 +3,11 @@ param([Parameter(Mandatory)][string]$PublicKeyFile,
       [string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or $state.Region -ne 'us-east-1' -or -not $state.AdminEndpointId -or -not $state.S3EndpointId) { throw 'Approved network must be fully recorded first' }
+if($state.Account -ne $operator.AccountId -or $state.Region -ne 'us-east-1' -or -not $state.AdminEndpointId -or -not $state.S3EndpointId) { throw 'Approved network must be fully recorded first' }
 Assert-PairForgeAdministrationReady $state
 $publicKey=[IO.File]::ReadAllText([IO.Path]::GetFullPath($PublicKeyFile)).Trim()
 if($publicKey -notmatch '^ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$') { throw 'Expected an Ed25519 public key, never a private key' }
@@ -57,7 +58,7 @@ foreach($role in @('App','Worker')) {
         BlockDeviceMappings=@(@{DeviceName=$state.RootDeviceName;Ebs=@{VolumeType='gp3';VolumeSize=$size;Encrypted=$true;Iops=3000;Throughput=125;DeleteOnTermination=$false}})
         TagSpecifications=@((Tags instance "pairforge-$($role.ToLower())"),(Tags volume "pairforge-$($role.ToLower())"),(Tags network-interface "pairforge-$($role.ToLower())"))
     }
-    if($role -eq 'App') { $request.IamInstanceProfile=@{Arn='arn:aws:iam::298984481596:instance-profile/pairforge/pairforge-app-backup'} }
+    if($role -eq 'App') { $request.IamInstanceProfile=@{Arn="arn:aws:iam::$($operator.AccountId):instance-profile/pairforge/pairforge-app-backup"} }
     $created=Request run-instances $request
     $state[$key]=$created.Instances[0].InstanceId
     $state["${role}PrivateIp"]=$created.Instances[0].PrivateIpAddress

@@ -2,11 +2,12 @@
 param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or $state.Region -ne 'us-east-1' -or -not $state.S3EndpointId) { throw 'Approved account and S3 gateway endpoint must be recorded first' }
-$bucket='pairforge-298984481596-us-east-1-backups'
+if($state.Account -ne $operator.AccountId -or $state.Region -ne 'us-east-1' -or -not $state.S3EndpointId) { throw 'Approved account and S3 gateway endpoint must be recorded first' }
+$bucket=$operator.BackupBucket
 function Request($Action,$Body) {
     $file=[IO.Path]::GetTempFileName()
     try {
@@ -16,7 +17,7 @@ function Request($Action,$Body) {
 }
 if(-not $state.BackupBucket) {
     $aws=Get-PairForgeAwsExecutable
-    $head=& $aws s3api head-bucket --bucket $bucket --expected-bucket-owner 298984481596 --profile pairforge --region us-east-1 --no-cli-pager 2>&1
+    $head=& $aws s3api head-bucket --bucket $bucket --expected-bucket-owner $operator.AccountId --profile pairforge --region us-east-1 --no-cli-pager 2>&1
     if($LASTEXITCODE -eq 0) { throw 'Bucket already exists without recorded ownership; reconcile before changing it' }
     if(($head -join ' ') -notmatch '\(404\)') { throw 'Could not confirm bucket absence; refusing creation' }
     [void](Request create-bucket @{Bucket=$bucket;ObjectOwnership='BucketOwnerEnforced'})
@@ -24,7 +25,7 @@ if(-not $state.BackupBucket) {
     [IO.File]::WriteAllText("$StateFile.new",($state | ConvertTo-Json -Depth 12))
     Move-Item -LiteralPath "$StateFile.new" -Destination $StateFile -Force
 } elseif($state.BackupBucket -ne $bucket) { throw 'Unexpected recorded bucket' }
-$base=@{Bucket=$bucket;ExpectedBucketOwner='298984481596'}
+$base=@{Bucket=$bucket;ExpectedBucketOwner=$operator.AccountId}
 $block=@{BlockPublicAcls=$true;IgnorePublicAcls=$true;BlockPublicPolicy=$true;RestrictPublicBuckets=$true}
 [void](Request put-public-access-block ($base+@{PublicAccessBlockConfiguration=$block}))
 [void](Request put-bucket-ownership-controls ($base+@{OwnershipControls=@{Rules=@(@{ObjectOwnership='BucketOwnerEnforced'})}}))
@@ -33,7 +34,7 @@ $block=@{BlockPublicAcls=$true;IgnorePublicAcls=$true;BlockPublicPolicy=$true;Re
 [void](Request put-bucket-lifecycle-configuration ($base+@{LifecycleConfiguration=@{Rules=@(@{ID='seven-day-postgres';Status='Enabled';Filter=@{Prefix='postgres/'};Expiration=@{Days=7};AbortIncompleteMultipartUpload=@{DaysAfterInitiation=1}})}}))
 $policy=@{Version='2012-10-17';Statement=@(
     @{Sid='RequireTls';Effect='Deny';Principal='*';Action='s3:*';Resource=@("arn:aws:s3:::$bucket","arn:aws:s3:::$bucket/*");Condition=@{Bool=@{'aws:SecureTransport'='false'}}},
-    @{Sid='BackupRoleUsesPrivateEndpoint';Effect='Deny';Principal='*';Action=@('s3:PutObject','s3:AbortMultipartUpload');Resource="arn:aws:s3:::$bucket/postgres/*";Condition=@{ArnEquals=@{'aws:PrincipalArn'='arn:aws:iam::298984481596:role/pairforge/pairforge-app-backup'};StringNotEquals=@{'aws:SourceVpce'=$state.S3EndpointId}}}
+    @{Sid='BackupRoleUsesPrivateEndpoint';Effect='Deny';Principal='*';Action=@('s3:PutObject','s3:AbortMultipartUpload');Resource="arn:aws:s3:::$bucket/postgres/*";Condition=@{ArnEquals=@{'aws:PrincipalArn'="arn:aws:iam::$($operator.AccountId):role/pairforge/pairforge-app-backup"};StringNotEquals=@{'aws:SourceVpce'=$state.S3EndpointId}}}
 )}
 [void](Request put-bucket-policy ($base+@{Policy=($policy | ConvertTo-Json -Depth 12 -Compress)}))
 $actual=Request get-public-access-block $base

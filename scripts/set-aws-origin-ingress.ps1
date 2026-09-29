@@ -2,12 +2,13 @@
 param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or -not $state.VpcOriginId -or -not $state.AppSecurityGroupId) { throw 'Recorded VPC origin and application group required' }
+if($state.Account -ne $operator.AccountId -or -not $state.VpcOriginId -or -not $state.AppSecurityGroupId) { throw 'Recorded VPC origin and application group required' }
 $origin=Invoke-PairForgeAws @('cloudfront','get-vpc-origin','--id',$state.VpcOriginId)
-$expected="arn:aws:ec2:us-east-1:298984481596:instance/$($state.AppInstanceId)"
+$expected="arn:aws:ec2:us-east-1:$($operator.AccountId):instance/$($state.AppInstanceId)"
 if($origin.VpcOrigin.VpcOriginEndpointConfig.Arn -ne $expected -or $origin.VpcOrigin.VpcOriginEndpointConfig.HTTPPort -ne 8084 -or
    $origin.VpcOrigin.VpcOriginEndpointConfig.OriginProtocolPolicy -ne 'http-only') { throw 'Unexpected VPC origin configuration' }
 $groups=Invoke-PairForgeAws @('ec2','describe-security-groups','--filters',"Name=vpc-id,Values=$($state.VpcId)")

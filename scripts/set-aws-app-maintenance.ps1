@@ -3,10 +3,11 @@ param([Parameter(Mandatory)][ValidateSet('Open','Close')][string]$Mode,
       [string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or -not $state.AppInstanceId) { throw 'Recorded approved application host required' }
+if($state.Account -ne $operator.AccountId -or -not $state.AppInstanceId) { throw 'Recorded approved application host required' }
 function Save-State { [IO.File]::WriteAllText("$StateFile.new",($state | ConvertTo-Json -Depth 12)); Move-Item -LiteralPath "$StateFile.new" -Destination $StateFile -Force }
 $record=Invoke-PairForgeAws @('ec2','describe-instances','--instance-ids',$state.AppInstanceId)
 $instance=$record.Reservations[0].Instances[0]

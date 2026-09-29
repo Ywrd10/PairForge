@@ -4,6 +4,8 @@ param([Parameter(Mandatory)][switch]$ApprovedAdministratorRepair)
 $ErrorActionPreference='Stop'
 if(-not $ApprovedAdministratorRepair) { throw 'Explicit administrator repair approval required' }
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
+$state=Get-PairForgeDeploymentState -RequiredKeys WorkerInstanceId
 $aws=Get-PairForgeAwsExecutable
 function Admin($Arguments) {
     $output=& $aws @Arguments --profile default --region us-east-1 --output json --no-cli-pager
@@ -11,8 +13,8 @@ function Admin($Arguments) {
     if($output) { return ($output | ConvertFrom-Json -AsHashtable) }
 }
 $identity=Admin @('sts','get-caller-identity')
-if($identity.Account -ne '298984481596' -or $identity.Arn -ne 'arn:aws:iam::298984481596:root') { throw 'Unexpected administrator identity' }
-$arn='arn:aws:iam::298984481596:policy/pairforge/PairForge-compute'
+if($identity.Account -ne $operator.AccountId -or $identity.Arn -ne "arn:aws:iam::$($operator.AccountId):root") { throw 'Unexpected administrator identity' }
+$arn="arn:aws:iam::$($operator.AccountId):policy/pairforge/PairForge-compute"
 $policy=Admin @('iam','get-policy','--policy-arn',$arn)
 $version=Admin @('iam','get-policy-version','--policy-arn',$arn,'--version-id',$policy.Policy.DefaultVersionId)
 $document=$version.PolicyVersion.Document
@@ -24,12 +26,12 @@ $actualNode=[System.Text.Json.Nodes.JsonNode]::Parse(($statement.Condition | Con
 $expectedNode=[System.Text.Json.Nodes.JsonNode]::Parse(($expected | ConvertTo-Json -Depth 10))
 if(-not [System.Text.Json.Nodes.JsonNode]::DeepEquals($actualNode,$expectedNode) -or
    $statement.Effect -ne 'Allow' -or @($statement.Action).Count -ne 1 -or $statement.Action[0] -ne 'ec2:ModifyInstanceMetadataOptions' -or
-   @($statement.Resource).Count -ne 1 -or $statement.Resource[0] -ne 'arn:aws:ec2:us-east-1:298984481596:instance/*') { throw 'Unexpected metadata permission; review manually' }
+   @($statement.Resource).Count -ne 1 -or $statement.Resource[0] -ne "arn:aws:ec2:us-east-1:$($operator.AccountId):instance/*") { throw 'Unexpected metadata permission; review manually' }
 $statement.Condition.StringEquals.Remove('ec2:MetadataHttpEndpoint')
 $statement.Condition.StringEquals['ec2:Attribute/HttpEndpoint']='disabled'
 $statement.Condition['ForAllValues:StringEquals']=@{'ec2:Attribute'=@('HttpEndpoint')}
 $statement.Condition.Null=@{'ec2:Attribute'='false'}
-$statement.Resource=@('arn:aws:ec2:us-east-1:298984481596:instance/i-06befca753a936715')
+$statement.Resource=@("arn:aws:ec2:us-east-1:$($operator.AccountId):instance/$($state.WorkerInstanceId)")
 $file=[IO.Path]::GetTempFileName()
 try {
     [IO.File]::WriteAllText($file,($document | ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false))

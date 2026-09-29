@@ -2,10 +2,11 @@
 param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
-$state=if(Test-Path -LiteralPath $StateFile){Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable}else{@{Account='298984481596';Region='us-east-1'}}
-if($state.Account -ne '298984481596' -or $state.Region -ne 'us-east-1') { throw 'State belongs to a different deployment' }
+$state=if(Test-Path -LiteralPath $StateFile){Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable}else{@{Account=$operator.AccountId;Region='us-east-1'}}
+if($state.Account -ne $operator.AccountId -or $state.Region -ne 'us-east-1') { throw 'State belongs to a different deployment' }
 function Save-State { [IO.File]::WriteAllText("$StateFile.new",($state | ConvertTo-Json -Depth 12)); Move-Item -LiteralPath "$StateFile.new" -Destination $StateFile -Force }
 function Request($Service,$Action,$Body) {
     $file=[IO.Path]::GetTempFileName()

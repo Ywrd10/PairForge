@@ -2,10 +2,11 @@
 param([string]$StateFile="$PSScriptRoot/../.tmp/m15-aws-state.json")
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/aws-deployment-context.ps1"
+$operator=Get-PairForgeOperatorConfig
 Assert-PairForgeDeploymentIdentity
 $StateFile=[IO.Path]::GetFullPath($StateFile)
 $state=Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json -AsHashtable
-if($state.Account -ne '298984481596' -or -not $state.AdminEndpointId) { throw 'Recorded administration endpoint required' }
+if($state.Account -ne $operator.AccountId -or -not $state.AdminEndpointId) { throw 'Recorded administration endpoint required' }
 $endpoints=Invoke-PairForgeAws @('ec2','describe-instance-connect-endpoints','--instance-connect-endpoint-ids',$state.AdminEndpointId)
 $endpoint=$endpoints.InstanceConnectEndpoints[0]
 $instances=Invoke-PairForgeAws @('ec2','describe-instances','--filters','Name=tag:Project,Values=PairForge','Name=instance-state-name,Values=pending,running,stopping,stopped')

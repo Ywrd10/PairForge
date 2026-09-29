@@ -253,7 +253,7 @@ or resize hosts. Sampling can miss short peaks. Report latency distributions
 without inventing an AWS latency SLO from the local baseline.
 
 Prepare and test the small remote adapter before the paid window. On approval,
-verify STS account `298984481596` and IAM user `pairforge-deployer` using only
+verify STS account `<approved-aws-account-id>` and IAM user `pairforge-deployer` using only
 profile `pairforge`, then verify the two recorded instance IDs and Standard
 CPU-credit mode. Follow `DEPLOYMENT.md`: start the existing hosts, check EC2
 status and disabled worker metadata, start PostgreSQL/Redis/RabbitMQ then the
@@ -305,6 +305,14 @@ guards. `remote-io.ts` reads bounded samples over existing private SSH; the
 read-only `scripts/observe-load-host.sh` collects Linux host health/capacity and
 queue observations. Missing/malformed/stale samples abort new work, as do guard
 violations. An abort never retries an uncertain POST.
+
+For any separately approved future run, both authenticated account IDs must match
+the exact two-account set in the ignored operator configuration; missing/invalid
+configuration aborts before authentication/network work. See
+[OPERATOR_CONFIGURATION.md](OPERATOR_CONFIGURATION.md). This configuration does
+not modify the deployed allowlist or authorize a new AWS window. Resource and
+backup-object aliases in public evidence replace identifiers only; measurements,
+hashes and verification results are unchanged.
 
 Before a run, transfer that observer as `/home/ubuntu/m16-observe.sh` to each
 existing host using `send-deployment-file.ps1`; complete the deployment startup
@@ -361,7 +369,7 @@ and RabbitMQ 4.1.8 ran on the app host. Worker concurrency/prefetch remained one
 sandbox images, limits and deployed JAR hashes are recorded in the artifact.
 No application binary, schema, allowlist, instance size or architecture changed.
 
-Identity was verified as profile `pairforge`, account `298984481596`, IAM user
+Identity was verified as profile `pairforge`, account `<approved-aws-account-id>`, IAM user
 `pairforge/pairforge-deployer`. Both EC2 status checks, dependency/API/worker
 readiness and sandbox preflight passed. Worker database and broker connections
 used the private app address with TLSv1.3; configured database `verify-full` and
@@ -497,7 +505,7 @@ stored in the existing backup bucket with S3 AES256 encryption and the verified
 seven-day lifecycle. Downloaded ciphertext matched both the stored SHA-256
 metadata and S3 checksum:
 
-- Key: `postgres/2026-09-28/034041-ff0de7058ee04cbb9a91765aa409e7d1.dump.cms`
+- Key: `postgres/2026-09-28/<backup-object-3>.dump.cms`
 - Size: 16,811 bytes
 - SHA-256: `c50405754e6ffa411bdca66c72cf336baa0ec5e3fd57672299f485585ba1e797`
 
@@ -569,8 +577,8 @@ confirmed the original five rows unchanged.
 ### Environment, timing and method
 
 The environment is the same two-host deployment recorded above: app
-`i-089a4dc88b34e6c56` (`t3a.medium`, two vCPUs, approximately 3.75 GiB guest RAM,
-30 GiB encrypted gp3) and worker `i-06befca753a936715` (`t3a.small`, two vCPUs,
+`<app-instance-id>` (`t3a.medium`, two vCPUs, approximately 3.75 GiB guest RAM,
+30 GiB encrypted gp3) and worker `<worker-instance-id>` (`t3a.small`, two vCPUs,
 approximately 1.87 GiB guest RAM, 20 GiB encrypted gp3), in `us-east-1a`.
 Ubuntu/kernel, JVM/Docker/dependency versions, sandbox image IDs and app/worker
 JAR hashes remained unchanged and are recorded in the artifact. The Windows
@@ -731,8 +739,8 @@ The backup service returned success/exit zero. The existing bucket's new
 CMS-encrypted ciphertext also uses S3 AES256 encryption. Downloaded bytes matched
 both SHA-256 metadata and the S3 checksum, and the seven-day lifecycle was verified:
 
-- Bucket: `pairforge-298984481596-us-east-1-backups`
-- Key: `postgres/2026-09-28/133318-850ae5cb2d5d4d98adfa00e6db62d3d2.dump.cms`
+- Bucket: `<private-backup-bucket>`
+- Key: `postgres/2026-09-28/<backup-object-4>.dump.cms`
 - Size: 18,252 bytes
 - SHA-256: `52f1a80ed9d04a8834d1363759c6408b758f2c0e00be1e4df0805c43bd070eba`
 

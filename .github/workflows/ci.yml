@@ -38,6 +38,7 @@ jobs:
           ./scripts/test-auth-environment.ps1
           ./scripts/test-ci-checks.ps1
           ./scripts/test-deployment-config.ps1
+          ./scripts/test-operator-config.ps1
           ./scripts/test-aws-deployment-context.ps1
           ./scripts/test-production-admission.ps1
           ./scripts/test-production-worker-start.ps1
